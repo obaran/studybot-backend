@@ -83,6 +83,12 @@ export interface OpenAIConfig {
   apiVersion: string;
   deploymentName: string;
   model: string;
+  // Configuration pour les embeddings
+  embeddingEndpoint: string;
+  embeddingApiKey: string;
+  embeddingApiVersion: string;
+  embeddingDeploymentName: string;
+  embeddingModel: string;
 }
 
 // Configuration Qdrant

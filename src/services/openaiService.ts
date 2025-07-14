@@ -228,8 +228,18 @@ Utilise ces informations pour répondre à la question de l'étudiant. Si les in
    */
   async generateEmbedding(text: string): Promise<number[]> {
     try {
-      const response = await openai.embeddings.create({
-        model: 'text-embedding-ada-002',
+      // Client OpenAI séparé pour les embeddings
+      const embeddingClient = new OpenAI({
+        apiKey: config.openai.embeddingApiKey,
+        baseURL: `${config.openai.embeddingEndpoint}openai/deployments/${config.openai.embeddingDeploymentName}`,
+        defaultQuery: { 'api-version': config.openai.embeddingApiVersion },
+        defaultHeaders: {
+          'api-key': config.openai.embeddingApiKey,
+        },
+      });
+
+      const response = await embeddingClient.embeddings.create({
+        model: config.openai.embeddingModel,
         input: text,
       });
 
@@ -239,7 +249,9 @@ Utilise ces informations pour répondre à la question de l'étudiant. Si les in
       logError(error as Error, {
         service: 'openai',
         action: 'generateEmbedding',
-        textLength: text.length
+        textLength: text.length,
+        embeddingModel: config.openai.embeddingModel,
+        embeddingDeployment: config.openai.embeddingDeploymentName
       });
 
       throw errors.OPENAI_ERROR;

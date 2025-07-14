@@ -15,6 +15,7 @@ import { openaiService } from './openaiService';
 const qdrantClient = new QdrantClient({
   url: config.qdrant.url,
   apiKey: config.qdrant.apiKey,
+  checkCompatibility: false, // Désactive la vérification de compatibilité client-serveur
 });
 
 class QdrantService {
