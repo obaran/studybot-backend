@@ -20,7 +20,6 @@ const requiredEnvVars = [
   'JWT_SECRET',
   'AZURE_OPENAI_ENDPOINT',
   'AZURE_OPENAI_API_KEY',
-  'AZURE_OPENAI_EMBEDDING_API_KEY',
   'QDRANT_URL',
   'QDRANT_API_KEY'
 ];
@@ -51,19 +50,13 @@ export const openaiConfig: OpenAIConfig = {
   apiVersion: process.env.AZURE_OPENAI_API_VERSION || '2024-02-15-preview',
   deploymentName: process.env.AZURE_OPENAI_DEPLOYMENT_NAME || 'gpt-4',
   model: process.env.AZURE_OPENAI_MODEL || 'gpt-4',
-  // Configuration des embeddings
-  embeddingEndpoint: process.env.AZURE_OPENAI_EMBEDDING_ENDPOINT || 'https://flowise-azure-openai.openai.azure.com/',
-  embeddingApiKey: process.env.AZURE_OPENAI_EMBEDDING_API_KEY!,
-  embeddingApiVersion: process.env.AZURE_OPENAI_EMBEDDING_API_VERSION || '2023-05-15',
-  embeddingDeploymentName: process.env.AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME || 'Azure-embedding',
-  embeddingModel: process.env.AZURE_OPENAI_EMBEDDING_MODEL || 'text-embedding-3-large',
 };
 
-// Configuration Qdrant - CLÉS VALIDÉES ✅
+// Configuration Qdrant - FORÇAGE DES NOUVELLES VALEURS
 export const qdrantConfig: QdrantConfig = {
-  url: process.env.QDRANT_URL!,
-  apiKey: process.env.QDRANT_API_KEY!,
-  collectionName: process.env.QDRANT_COLLECTION_NAME || 'Studybot BBA 11.10.24',
+  url: 'https://dffb1ac4-4599-42d3-802a-15fb23414b46.germanywestcentral-0.azure.cloud.qdrant.io:6333',
+  apiKey: 'NjkQfYNtbHywOs_w3ooLJNihbOaaL8orny7VvjkBubPUdllO4lxVXQ',
+  collectionName: 'Studybot BBA 11.10.24',
 };
 
 // Configuration base de données (sera activée quand la DB sera créée)

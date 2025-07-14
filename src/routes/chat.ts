@@ -45,4 +45,11 @@ router.get('/qdrant-info', chatController.getQdrantInfo);
  */
 router.post('/search', chatController.searchQdrant);
 
+/**
+ * @route   GET /api/chat/memory-stats
+ * @desc    Obtenir les statistiques de la mémoire conversationnelle
+ * @access  Public (pour debug/admin)
+ */
+router.get('/memory-stats', chatController.getMemoryStats);
+
 export default router; 

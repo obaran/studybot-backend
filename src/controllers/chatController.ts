@@ -7,6 +7,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { asyncHandler } from '@/middleware/errorHandler';
 import { openaiService } from '@/services/openaiService';
 import { qdrantService } from '@/services/qdrantService';
+import { conversationMemory } from '@/services/conversationMemoryService';
 import { logger } from '@/utils/logger';
 import { ChatRequest, ChatResponse, APIResponse } from '@/types';
 
@@ -48,17 +49,24 @@ class ChatController {
       
       logger.info(`📚 ${vectorResults.length} sources trouvées avec scores: ${vectorResults.map(r => r.score.toFixed(2)).join(', ')}`);
 
-      // 2. Générer la réponse avec OpenAI
+      // 2. Récupérer l'historique de conversation
+      const conversationHistory = conversationMemory.getConversationHistory(currentSessionId);
+      
+      // 3. Générer la réponse avec OpenAI
       logger.info(`🤖 Génération de réponse OpenAI...`);
       
       const chatResponse = await openaiService.generateChatResponse(
         message,
-        [], // TODO: Charger l'historique depuis la DB quand elle sera créée
+        conversationHistory, // ✅ Historique réel chargé !
         contextSources,
         currentSessionId
       );
 
-      // 3. Construire la réponse complète
+      // 4. Sauvegarder la conversation en mémoire
+      conversationMemory.addMessage(currentSessionId, 'user', message);
+      conversationMemory.addMessage(currentSessionId, 'assistant', chatResponse.response);
+
+      // 5. Construire la réponse complète
       const response: APIResponse<ChatResponse> = {
         success: true,
         data: {
@@ -312,6 +320,41 @@ N'hésitez pas si vous avez d'autres questions !`;
         error: {
           code: 'SEARCH_ERROR',
           message: 'Erreur lors de la recherche',
+          statusCode: 500
+        }
+      });
+    }
+  });
+
+  /**
+   * Obtenir les statistiques de la mémoire conversationnelle
+   */
+  public getMemoryStats = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    try {
+      const stats = conversationMemory.getStats();
+      
+      const response: APIResponse = {
+        success: true,
+        data: {
+          ...stats,
+          description: 'Statistiques de la mémoire conversationnelle en RAM'
+        },
+        metadata: {
+          timestamp: new Date().toISOString(),
+          requestId: req.requestId
+        }
+      };
+
+      res.status(200).json(response);
+
+    } catch (error) {
+      logger.error('❌ Erreur lors de la récupération des stats mémoire:', error);
+      
+      res.status(500).json({
+        success: false,
+        error: {
+          code: 'MEMORY_STATS_ERROR',
+          message: 'Erreur lors de la récupération des statistiques',
           statusCode: 500
         }
       });
