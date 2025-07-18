@@ -27,7 +27,7 @@ class QdrantService {
   async searchSimilarContent(
     query: string,
     limit: number = 5,
-    scoreThreshold: number = 0.7
+    scoreThreshold: number = 0.4
   ): Promise<VectorSearchResult[]> {
     const startTime = Date.now();
 
@@ -103,7 +103,7 @@ class QdrantService {
   ): Promise<VectorSearchResult[]> {
     try {
       // Recherche générale
-      const results = await this.searchSimilarContent(query, limit * 2, 0.6);
+      const results = await this.searchSimilarContent(query, limit * 2, 0.4);
 
       // Filtrer selon le type de chatbot si nécessaire
       let filteredResults = results;
