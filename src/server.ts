@@ -16,7 +16,7 @@ import { requestId } from '@/middleware/requestId';
 // Import des routes
 import chatRoutes from '@/routes/chat';
 // import authRoutes from '@/routes/auth';
-// import adminRoutes from '@/routes/admin';
+import adminRoutes from '@/routes/admin';
 
 const app = express();
 
@@ -126,7 +126,7 @@ app.get('/api/version', (_req, res) => {
 
 app.use('/api/chat', chatRoutes);
 // app.use('/api/auth', authRoutes);
-// app.use('/api/admin', adminRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Route par défaut
 app.get('/api', (_req, res) => {
@@ -139,7 +139,7 @@ app.get('/api', (_req, res) => {
       version: '/api/version',
       chat: '/api/chat',
       // auth: '/api/auth',
-      // admin: '/api/admin'
+      admin: '/api/admin'
     }
   });
 });
