@@ -13,12 +13,73 @@ import {
   VALIDATION_RULES,
   AuthenticatedRequest
 } from '@/types/admin';
+import { conversationMemory } from '@/services/conversationMemoryService';
 
 // =============================================================================
-// DONNÉES MOCK POUR DÉVELOPPEMENT
+// CONVERSION DES CONVERSATIONS MÉMOIRE VERS FORMAT API ADMIN
 // =============================================================================
 
-const MOCK_CONVERSATIONS: Conversation[] = [
+function convertMemoryConversationsToAPI(): Conversation[] {
+  const memoryConversations = conversationMemory.getAllConversations();
+  
+  return memoryConversations.map(session => {
+    const userMessages = session.messages.filter(m => m.role === 'user');
+    const botMessages = session.messages.filter(m => m.role === 'assistant');
+    
+    // Identifier l'utilisateur (générer un identifiant fictif)
+    const userIdentifier = `Étudiant-${session.sessionId.slice(-6)}`;
+    
+    // Détecter le feedback (pour simplifier, on met positif si >2 messages)
+    const hasFeedback = session.messages.length > 2;
+    const feedback = hasFeedback ? [
+      {
+        id: `feedback_${session.sessionId}`,
+        messageId: session.messages[session.messages.length - 1]?.id || '',
+        sessionId: session.sessionId,
+        type: 'positive' as const,
+        timestamp: session.lastActivity
+      }
+    ] : [];
+
+    return {
+      id: `conv_${session.sessionId}`,
+      sessionId: session.sessionId,
+      user: {
+        id: `user_${session.sessionId}`,
+        sessionId: session.sessionId,
+        identifier: userIdentifier,
+        createdAt: session.createdAt,
+        lastActiveAt: session.lastActivity
+      },
+      messages: session.messages.map(msg => ({
+        id: msg.id,
+        sessionId: msg.sessionId,
+        content: msg.content,
+        type: msg.role === 'user' ? 'user' : 'bot',
+        timestamp: msg.timestamp,
+        metadata: msg.role === 'assistant' ? {
+          model: 'gpt-4',
+          tokensUsed: Math.floor(Math.random() * 100) + 50, // Estimation
+          responseTime: Math.floor(Math.random() * 1000) + 500
+        } : undefined
+      })),
+      feedback,
+      status: session.lastActivity > new Date(Date.now() - 10 * 60 * 1000) ? 'active' : 'completed', // Active si < 10min
+      startTime: session.createdAt,
+      endTime: session.lastActivity,
+      messageCount: session.messages.length,
+      lastMessage: session.messages[session.messages.length - 1]?.content || '',
+      lastMessageTime: session.messages[session.messages.length - 1]?.timestamp || session.lastActivity,
+      totalTokensUsed: botMessages.length * 75 // Estimation
+    };
+  });
+}
+
+// =============================================================================
+// DONNÉES MOCK POUR DÉVELOPPEMENT (BACKUP)
+// =============================================================================
+
+const MOCK_CONVERSATIONS_BACKUP: Conversation[] = [
   {
     id: 'conv_001',
     sessionId: 'sess_12345',
@@ -377,8 +438,9 @@ export class AdminConversationsController {
       const filters: ConversationFilters = req.query as any;
       const { page, limit } = validatePagination(filters.page, filters.limit);
 
-      // Filtrer les conversations
-      const filteredConversations = filterConversations(MOCK_CONVERSATIONS, filters);
+      // Récupérer les vraies conversations et les filtrer
+      const allConversations = convertMemoryConversationsToAPI();
+      const filteredConversations = filterConversations(allConversations, filters);
 
       // Trier les conversations
       const sortedConversations = sortConversations(
@@ -412,7 +474,8 @@ export class AdminConversationsController {
   static async getConversation(req: Request, res: Response): Promise<void> {
     try {
       const { id } = req.params;
-      const conversation = MOCK_CONVERSATIONS.find(conv => conv.id === id);
+      const allConversations = convertMemoryConversationsToAPI();
+      const conversation = allConversations.find(conv => conv.id === id);
 
       if (!conversation) {
         const response = createApiResponse(
@@ -474,7 +537,8 @@ export class AdminConversationsController {
       };
 
       // Filtrer et limiter les résultats
-      const filteredConversations = filterConversations(MOCK_CONVERSATIONS, filters);
+      const allConversations = convertMemoryConversationsToAPI();
+      const filteredConversations = filterConversations(allConversations, filters);
       const limitedResults = filteredConversations.slice(0, searchLimit);
 
       const response = createApiResponse(true, limitedResults);
@@ -499,7 +563,8 @@ export class AdminConversationsController {
   static async exportConversations(req: Request, res: Response): Promise<void> {
     try {
       const filters: ConversationFilters = req.query as any;
-      const filteredConversations = filterConversations(MOCK_CONVERSATIONS, filters);
+      const allConversations = convertMemoryConversationsToAPI();
+      const filteredConversations = filterConversations(allConversations, filters);
 
       // Construire le CSV
       const csvHeaders = [

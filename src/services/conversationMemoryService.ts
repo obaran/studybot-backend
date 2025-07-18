@@ -117,6 +117,14 @@ class ConversationMemoryService {
   }
 
   /**
+   * Récupérer toutes les conversations pour l'API admin
+   */
+  getAllConversations(): ConversationSession[] {
+    return Array.from(this.conversations.values())
+      .sort((a, b) => b.lastActivity.getTime() - a.lastActivity.getTime()); // Plus récentes en premier
+  }
+
+  /**
    * Obtenir des statistiques sur la mémoire
    */
   getStats(): {
