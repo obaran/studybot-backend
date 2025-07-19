@@ -29,17 +29,72 @@ function convertMemoryConversationsToAPI(): Conversation[] {
     // Identifier l'utilisateur (générer un identifiant fictif)
     const userIdentifier = `Étudiant-${session.sessionId.slice(-6)}`;
     
-    // Détecter le feedback (pour simplifier, on met positif si >2 messages)
-    const hasFeedback = session.messages.length > 2;
-    const feedback = hasFeedback ? [
-      {
-        id: `feedback_${session.sessionId}`,
-        messageId: session.messages[session.messages.length - 1]?.id || '',
-        sessionId: session.sessionId,
-        type: 'positive' as const,
-        timestamp: session.lastActivity
+    // Détecter le feedback (diversifier les types pour tester)
+    const hasFeedback = session.messages.length > 1; // Plus probable d'avoir un feedback
+    const feedback = hasFeedback ? (() => {
+      const feedbacks = [];
+      
+      // Trouver le dernier message du bot (compatible avec toutes versions TypeScript)
+      let lastBotMessageIndex = -1;
+      for (let i = session.messages.length - 1; i >= 0; i--) {
+        if (session.messages[i].role === 'assistant') {
+          lastBotMessageIndex = i;
+          break;
+        }
       }
-    ] : [];
+      
+      if (lastBotMessageIndex !== -1) {
+        const botMessage = session.messages[lastBotMessageIndex];
+        
+        // Générer des feedbacks variés basés sur des critères
+        const isHelpful = session.messages.length >= 3; // Plus de 3 messages = conversation longue = probablement utile
+        const hasQuestionWords = session.messages.some((message: any) => 
+          message.content.toLowerCase().includes('comment') || 
+          message.content.toLowerCase().includes('quel') ||
+          message.content.toLowerCase().includes('où') ||
+          message.content.toLowerCase().includes('quand')
+        );
+        
+        // Logique pour déterminer le type de feedback
+        let feedbackType: 'positive' | 'negative';
+        let comment: string | undefined;
+        
+        // Équilibrage 50/50 pour tests avec marquage "(test)"
+        const randomValue = Math.random();
+        if (randomValue > 0.5) {
+          feedbackType = 'positive';
+          const positiveComments = [
+            'Réponse claire et précise (test)',
+            'Très utile, merci ! (test)',
+            'Exactement ce que je cherchais (test)',
+            'Parfait, ça répond à ma question (test)',
+            'Information complète et bien expliquée (test)'
+          ];
+          comment = positiveComments[Math.floor(Math.random() * positiveComments.length)];
+        } else {
+          feedbackType = 'negative';
+          const negativeComments = [
+            'Information incomplète (test)',
+            'Pas assez détaillé (test)',
+            'Ne répond pas vraiment à ma question (test)',
+            'Manque des informations pratiques (test)',
+            'Réponse trop générale (test)'
+          ];
+          comment = negativeComments[Math.floor(Math.random() * negativeComments.length)];
+        }
+        
+        feedbacks.push({
+          id: `feedback_${session.sessionId}_${botMessage.id}`,
+          messageId: botMessage.id,
+          sessionId: session.sessionId,
+          type: feedbackType,
+          comment,
+          timestamp: new Date(session.lastActivity.getTime() + 30000) // 30s après le message
+        });
+      }
+      
+      return feedbacks;
+    })() : [];
 
     return {
       id: `conv_${session.sessionId}`,
@@ -347,10 +402,12 @@ function filterConversations(conversations: Conversation[], filters: Conversatio
     // Filtre par date
     if (filters.dateFrom) {
       const fromDate = new Date(filters.dateFrom);
+      fromDate.setHours(0, 0, 0, 0); // Début de journée
       if (conv.startTime < fromDate) return false;
     }
     if (filters.dateTo) {
       const toDate = new Date(filters.dateTo);
+      toDate.setHours(23, 59, 59, 999); // Fin de journée
       if (conv.startTime > toDate) return false;
     }
 
