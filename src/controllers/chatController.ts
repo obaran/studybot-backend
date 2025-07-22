@@ -7,7 +7,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { asyncHandler } from '@/middleware/errorHandler';
 import { openaiService } from '@/services/openaiService';
 import { qdrantService } from '@/services/qdrantService';
-import { conversationMemory } from '@/services/conversationMemoryService';
+import { conversationDB } from '@/services/conversationDatabaseService';
 import { logger } from '@/utils/logger';
 import { ChatRequest, ChatResponse, APIResponse } from '@/types';
 
@@ -49,28 +49,29 @@ class ChatController {
       
       logger.info(`📚 ${vectorResults.length} sources trouvées avec scores: ${vectorResults.map(r => r.score.toFixed(2)).join(', ')}`);
 
-      // 2. Récupérer l'historique de conversation
-      const conversationHistory = conversationMemory.getConversationHistory(currentSessionId);
+      // 2. Récupérer l'historique de conversation depuis la base de données
+      const conversationHistory = await conversationDB.getConversationHistory(currentSessionId);
       
       // 3. Générer la réponse avec OpenAI
       logger.info(`🤖 Génération de réponse OpenAI...`);
       
       const chatResponse = await openaiService.generateChatResponse(
         message,
-        conversationHistory, // ✅ Historique réel chargé !
+        conversationHistory, // ✅ Historique réel chargé depuis la DB !
         contextSources,
         currentSessionId
       );
 
-      // 4. Sauvegarder la conversation en mémoire
-      conversationMemory.addMessage(currentSessionId, 'user', message);
-      conversationMemory.addMessage(currentSessionId, 'assistant', chatResponse.response);
+      // 4. Sauvegarder la conversation en base de données
+      await conversationDB.addMessage(currentSessionId, 'user', message);
+      const assistantMessageId = await conversationDB.addMessage(currentSessionId, 'assistant', chatResponse.response);
 
-      // 5. Construire la réponse complète
+      // 5. Construire la réponse complète avec l'ID réel de la base
       const response: APIResponse<ChatResponse> = {
         success: true,
         data: {
           ...chatResponse,
+          messageId: assistantMessageId, // ✅ Utiliser l'ID réel de la base
           sessionId: currentSessionId
         },
         metadata: {
@@ -327,17 +328,17 @@ N'hésitez pas si vous avez d'autres questions !`;
   });
 
   /**
-   * Obtenir les statistiques de la mémoire conversationnelle
+   * Obtenir les statistiques de la base de données conversationnelle
    */
   public getMemoryStats = asyncHandler(async (req: Request, res: Response): Promise<void> => {
     try {
-      const stats = conversationMemory.getStats();
+      const stats = await conversationDB.getStats();
       
       const response: APIResponse = {
         success: true,
         data: {
           ...stats,
-          description: 'Statistiques de la mémoire conversationnelle en RAM'
+          description: 'Statistiques de la base de données conversationnelle MySQL'
         },
         metadata: {
           timestamp: new Date().toISOString(),
@@ -357,6 +358,65 @@ N'hésitez pas si vous avez d'autres questions !`;
           message: 'Erreur lors de la récupération des statistiques',
           statusCode: 500
         }
+      });
+    }
+  });
+
+  /**
+   * Enregistrer un feedback utilisateur
+   */
+  public submitFeedback = asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { sessionId, messageId, type, comment } = req.body;
+
+      // Validation des données
+      if (!sessionId || !messageId || !type) {
+        res.status(400).json({
+          success: false,
+          error: 'MISSING_REQUIRED_FIELDS',
+          message: 'sessionId, messageId et type sont requis'
+        });
+        return;
+      }
+
+      if (!['positive', 'negative'].includes(type)) {
+        res.status(400).json({
+          success: false,
+          error: 'INVALID_FEEDBACK_TYPE',
+          message: 'type doit être "positive" ou "negative"'
+        });
+        return;
+      }
+
+      logger.info(`💬 Feedback reçu: ${type} pour message ${messageId} session ${sessionId}`);
+
+      // Sauvegarder le feedback en base de données
+      const feedbackId = `fb_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+             await conversationDB.addFeedback(messageId, sessionId, type, comment || null);
+
+      logger.info(`✅ Feedback enregistré: ${feedbackId} (${type})`);
+
+      res.status(200).json({
+        success: true,
+        data: {
+          feedbackId,
+          sessionId,
+          messageId,
+          type,
+          comment: comment || null
+        },
+        message: 'Feedback enregistré avec succès',
+        timestamp: new Date().toISOString()
+      });
+
+    } catch (error) {
+      logger.error('❌ Erreur enregistrement feedback:', error);
+      res.status(500).json({
+        success: false,
+        error: 'INTERNAL_ERROR',
+        message: 'Erreur lors de l\'enregistrement du feedback',
+        timestamp: new Date().toISOString()
       });
     }
   });

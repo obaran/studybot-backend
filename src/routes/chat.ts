@@ -52,4 +52,12 @@ router.post('/search', chatController.searchQdrant);
  */
 router.get('/memory-stats', chatController.getMemoryStats);
 
+/**
+ * @route   POST /api/chat/feedback
+ * @desc    Enregistrer un feedback utilisateur
+ * @access  Public
+ * @body    { sessionId: string, messageId: string, type: 'positive'|'negative', comment?: string }
+ */
+router.post('/feedback', chatController.submitFeedback);
+
 export default router; 

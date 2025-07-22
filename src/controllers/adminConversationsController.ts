@@ -1,5 +1,5 @@
 // =============================================================================
-// STUDYBOT BACKEND - CONTRÔLEUR ADMIN CONVERSATIONS
+// STUDYBOT BACKEND - CONTRÔLEUR ADMIN CONVERSATIONS (BASE DE DONNÉES)
 // =============================================================================
 
 import { Request, Response } from 'express';
@@ -8,672 +8,532 @@ import {
   Conversation,
   ConversationFilters,
   PaginatedResponse,
-  ConversationSearchQuery,
   ErrorCodes,
-  VALIDATION_RULES,
-  AuthenticatedRequest
+  VALIDATION_RULES
 } from '@/types/admin';
-import { conversationMemory } from '@/services/conversationMemoryService';
+import { conversationDB } from '@/services/conversationDatabaseService';
+import { database } from '@/config/database';
+import { logger } from '@/utils/logger';
 
 // =============================================================================
-// CONVERSION DES CONVERSATIONS MÉMOIRE VERS FORMAT API ADMIN
+// UTILITAIRES DE VALIDATION
 // =============================================================================
 
-function convertMemoryConversationsToAPI(): Conversation[] {
-  const memoryConversations = conversationMemory.getAllConversations();
-  
-  return memoryConversations.map(session => {
-    const userMessages = session.messages.filter(m => m.role === 'user');
-    const botMessages = session.messages.filter(m => m.role === 'assistant');
-    
-    // Identifier l'utilisateur (générer un identifiant fictif)
-    const userIdentifier = `Étudiant-${session.sessionId.slice(-6)}`;
-    
-    // Détecter le feedback (diversifier les types pour tester)
-    const hasFeedback = session.messages.length > 1; // Plus probable d'avoir un feedback
-    const feedback = hasFeedback ? (() => {
-      const feedbacks = [];
-      
-      // Trouver le dernier message du bot (compatible avec toutes versions TypeScript)
-      let lastBotMessageIndex = -1;
-      for (let i = session.messages.length - 1; i >= 0; i--) {
-        if (session.messages[i].role === 'assistant') {
-          lastBotMessageIndex = i;
-          break;
-        }
-      }
-      
-      if (lastBotMessageIndex !== -1) {
-        const botMessage = session.messages[lastBotMessageIndex];
-        
-        // Générer des feedbacks variés basés sur des critères
-        const isHelpful = session.messages.length >= 3; // Plus de 3 messages = conversation longue = probablement utile
-        const hasQuestionWords = session.messages.some((message: any) => 
-          message.content.toLowerCase().includes('comment') || 
-          message.content.toLowerCase().includes('quel') ||
-          message.content.toLowerCase().includes('où') ||
-          message.content.toLowerCase().includes('quand')
-        );
-        
-        // Logique pour déterminer le type de feedback
-        let feedbackType: 'positive' | 'negative';
-        let comment: string | undefined;
-        
-        // Équilibrage 50/50 pour tests avec marquage "(test)"
-        const randomValue = Math.random();
-        if (randomValue > 0.5) {
-          feedbackType = 'positive';
-          const positiveComments = [
-            'Réponse claire et précise (test)',
-            'Très utile, merci ! (test)',
-            'Exactement ce que je cherchais (test)',
-            'Parfait, ça répond à ma question (test)',
-            'Information complète et bien expliquée (test)'
-          ];
-          comment = positiveComments[Math.floor(Math.random() * positiveComments.length)];
-        } else {
-          feedbackType = 'negative';
-          const negativeComments = [
-            'Information incomplète (test)',
-            'Pas assez détaillé (test)',
-            'Ne répond pas vraiment à ma question (test)',
-            'Manque des informations pratiques (test)',
-            'Réponse trop générale (test)'
-          ];
-          comment = negativeComments[Math.floor(Math.random() * negativeComments.length)];
-        }
-        
-        feedbacks.push({
-          id: `feedback_${session.sessionId}_${botMessage.id}`,
-          messageId: botMessage.id,
-          sessionId: session.sessionId,
-          type: feedbackType,
-          comment,
-          timestamp: new Date(session.lastActivity.getTime() + 30000) // 30s après le message
-        });
-      }
-      
-      return feedbacks;
-    })() : [];
-
-    return {
-      id: `conv_${session.sessionId}`,
-      sessionId: session.sessionId,
-      user: {
-        id: `user_${session.sessionId}`,
-        sessionId: session.sessionId,
-        identifier: userIdentifier,
-        createdAt: session.createdAt,
-        lastActiveAt: session.lastActivity
-      },
-      messages: session.messages.map(msg => ({
-        id: msg.id,
-        sessionId: msg.sessionId,
-        content: msg.content,
-        type: msg.role === 'user' ? 'user' : 'bot',
-        timestamp: msg.timestamp,
-        metadata: msg.role === 'assistant' ? {
-          model: 'gpt-4',
-          tokensUsed: Math.floor(Math.random() * 100) + 50, // Estimation
-          responseTime: Math.floor(Math.random() * 1000) + 500
-        } : undefined
-      })),
-      feedback,
-      status: session.lastActivity > new Date(Date.now() - 10 * 60 * 1000) ? 'active' : 'completed', // Active si < 10min
-      startTime: session.createdAt,
-      endTime: session.lastActivity,
-      messageCount: session.messages.length,
-      lastMessage: session.messages[session.messages.length - 1]?.content || '',
-      lastMessageTime: session.messages[session.messages.length - 1]?.timestamp || session.lastActivity,
-      totalTokensUsed: botMessages.length * 75 // Estimation
-    };
-  });
-}
-
-// =============================================================================
-// DONNÉES MOCK POUR DÉVELOPPEMENT (BACKUP)
-// =============================================================================
-
-const MOCK_CONVERSATIONS_BACKUP: Conversation[] = [
-  {
-    id: 'conv_001',
-    sessionId: 'sess_12345',
-    user: {
-      id: 'user_001',
-      sessionId: 'sess_12345',
-      identifier: 'Étudiant BBA2',
-      ipAddress: '192.168.1.100',
-      userAgent: 'Mozilla/5.0...',
-      createdAt: new Date('2025-01-15T14:30:00Z'),
-      lastActiveAt: new Date('2025-01-15T14:35:00Z')
-    },
-    messages: [
-      {
-        id: 'msg_001',
-        sessionId: 'sess_12345',
-        content: 'Quels sont les horaires de la bibliothèque cette semaine ?',
-        type: 'user',
-        timestamp: new Date('2025-01-15T14:30:00Z')
-      },
-      {
-        id: 'msg_002',
-        sessionId: 'sess_12345',
-        content: 'La bibliothèque est ouverte du lundi au vendredi de 8h à 20h, et le samedi de 9h à 17h cette semaine.',
-        type: 'bot',
-        timestamp: new Date('2025-01-15T14:30:15Z'),
-        metadata: {
-          model: 'gpt-4',
-          tokensUsed: 45,
-          responseTime: 1200,
-          sources: ['bibliotheque-horaires.pdf']
-        }
-      },
-      {
-        id: 'msg_003',
-        sessionId: 'sess_12345',
-        content: 'Merci pour les informations sur les horaires',
-        type: 'user',
-        timestamp: new Date('2025-01-15T14:32:00Z')
-      }
-    ],
-    feedback: [
-      {
-        id: 'feedback_001',
-        messageId: 'msg_002',
-        sessionId: 'sess_12345',
-        type: 'positive',
-        comment: 'Réponse claire et précise',
-        timestamp: new Date('2025-01-15T14:32:30Z')
-      }
-    ],
-    status: 'completed',
-    startTime: new Date('2025-01-15T14:30:00Z'),
-    endTime: new Date('2025-01-15T14:32:30Z'),
-    messageCount: 3,
-    lastMessage: 'Merci pour les informations sur les horaires',
-    lastMessageTime: new Date('2025-01-15T14:32:00Z'),
-    averageResponseTime: 1200,
-    totalTokensUsed: 45
-  },
-  {
-    id: 'conv_002',
-    sessionId: 'sess_67890',
-    user: {
-      id: 'user_002',
-      sessionId: 'sess_67890',
-      identifier: 'Étudiant BBA1',
-      ipAddress: '192.168.1.101',
-      userAgent: 'Mozilla/5.0...',
-      createdAt: new Date('2025-01-15T14:28:00Z'),
-      lastActiveAt: new Date('2025-01-15T14:30:00Z')
-    },
-    messages: [
-      {
-        id: 'msg_004',
-        sessionId: 'sess_67890',
-        content: 'Comment accéder aux cours en ligne ?',
-        type: 'user',
-        timestamp: new Date('2025-01-15T14:28:00Z')
-      },
-      {
-        id: 'msg_005',
-        sessionId: 'sess_67890',
-        content: 'Pour accéder aux cours en ligne, connectez-vous à la plateforme MyEmlyon avec vos identifiants étudiants.',
-        type: 'bot',
-        timestamp: new Date('2025-01-15T14:28:18Z'),
-        metadata: {
-          model: 'gpt-4',
-          tokensUsed: 38,
-          responseTime: 1800,
-          sources: ['plateforme-myemlyon.pdf']
-        }
-      }
-    ],
-    feedback: [],
-    status: 'active',
-    startTime: new Date('2025-01-15T14:28:00Z'),
-    messageCount: 2,
-    lastMessage: 'Pour accéder aux cours en ligne, connectez-vous à la plateforme MyEmlyon avec vos identifiants étudiants.',
-    lastMessageTime: new Date('2025-01-15T14:28:18Z'),
-    averageResponseTime: 1800,
-    totalTokensUsed: 38
-  },
-  {
-    id: 'conv_003',
-    sessionId: 'sess_11111',
-    user: {
-      id: 'user_003',
-      sessionId: 'sess_11111',
-      identifier: 'Étudiant BBA3',
-      ipAddress: '192.168.1.102',
-      userAgent: 'Mozilla/5.0...',
-      createdAt: new Date('2025-01-15T14:15:00Z'),
-      lastActiveAt: new Date('2025-01-15T14:20:00Z')
-    },
-    messages: [
-      {
-        id: 'msg_006',
-        sessionId: 'sess_11111',
-        content: 'Quelles sont les informations sur les stages ?',
-        type: 'user',
-        timestamp: new Date('2025-01-15T14:15:00Z')
-      },
-      {
-        id: 'msg_007',
-        sessionId: 'sess_11111',
-        content: 'Les stages sont obligatoires en 3ème année. La durée minimale est de 6 mois. Contactez le bureau des stages pour plus d\'informations.',
-        type: 'bot',
-        timestamp: new Date('2025-01-15T14:15:25Z'),
-        metadata: {
-          model: 'gpt-4',
-          tokensUsed: 52,
-          responseTime: 2100,
-          sources: ['stages-guide.pdf', 'stages-contact.pdf']
-        }
-      }
-    ],
-    feedback: [
-      {
-        id: 'feedback_002',
-        messageId: 'msg_007',
-        sessionId: 'sess_11111',
-        type: 'positive',
-        timestamp: new Date('2025-01-15T14:16:00Z')
-      }
-    ],
-    status: 'completed',
-    startTime: new Date('2025-01-15T14:15:00Z'),
-    endTime: new Date('2025-01-15T14:16:00Z'),
-    messageCount: 2,
-    lastMessage: 'Les stages sont obligatoires en 3ème année. La durée minimale est de 6 mois. Contactez le bureau des stages pour plus d\'informations.',
-    lastMessageTime: new Date('2025-01-15T14:15:25Z'),
-    averageResponseTime: 2100,
-    totalTokensUsed: 52
-  },
-  {
-    id: 'conv_004',
-    sessionId: 'sess_22222',
-    user: {
-      id: 'user_004',
-      sessionId: 'sess_22222',
-      identifier: 'Étudiant BBA4',
-      ipAddress: '192.168.1.103',
-      userAgent: 'Mozilla/5.0...',
-      createdAt: new Date('2025-01-15T13:45:00Z'),
-      lastActiveAt: new Date('2025-01-15T13:50:00Z')
-    },
-    messages: [
-      {
-        id: 'msg_008',
-        sessionId: 'sess_22222',
-        content: 'Quel est le contact du coordinateur à Lyon ?',
-        type: 'user',
-        timestamp: new Date('2025-01-15T13:45:00Z')
-      },
-      {
-        id: 'msg_009',
-        sessionId: 'sess_22222',
-        content: 'Je ne trouve pas d\'informations spécifiques sur le coordinateur de Lyon dans ma base de données. Pourriez-vous contacter le secrétariat ?',
-        type: 'bot',
-        timestamp: new Date('2025-01-15T13:45:30Z'),
-        metadata: {
-          model: 'gpt-4',
-          tokensUsed: 35,
-          responseTime: 1500
-        }
-      }
-    ],
-    feedback: [
-      {
-        id: 'feedback_003',
-        messageId: 'msg_009',
-        sessionId: 'sess_22222',
-        type: 'negative',
-        comment: 'Information manquante, pas très utile',
-        timestamp: new Date('2025-01-15T13:46:00Z')
-      }
-    ],
-    status: 'completed',
-    startTime: new Date('2025-01-15T13:45:00Z'),
-    endTime: new Date('2025-01-15T13:46:00Z'),
-    messageCount: 2,
-    lastMessage: 'Je ne trouve pas d\'informations spécifiques sur le coordinateur de Lyon dans ma base de données. Pourriez-vous contacter le secrétariat ?',
-    lastMessageTime: new Date('2025-01-15T13:45:30Z'),
-    averageResponseTime: 1500,
-    totalTokensUsed: 35
-  }
-];
-
-// =============================================================================
-// FONCTIONS UTILITAIRES
-// =============================================================================
-
-function createApiResponse<T>(
-  success: boolean,
-  data?: T,
-  error?: string,
-  message?: string
-): ApiResponse<T> {
-  return {
-    success,
-    data,
-    error,
-    message,
-    timestamp: new Date().toISOString()
-  };
-}
-
-function validatePagination(page?: number, limit?: number): { page: number; limit: number } {
-  const validatedPage = Math.max(1, page || VALIDATION_RULES.pagination.defaultPage);
-  const validatedLimit = Math.min(
-    Math.max(1, limit || VALIDATION_RULES.pagination.defaultLimit),
+function validatePagination(page?: string | number, limit?: string | number) {
+  const parsedPage = Math.max(1, Number(page) || VALIDATION_RULES.pagination.defaultPage);
+  const parsedLimit = Math.min(
+    Math.max(1, Number(limit) || VALIDATION_RULES.pagination.defaultLimit),
     VALIDATION_RULES.pagination.maxLimit
   );
   
-  return { page: validatedPage, limit: validatedLimit };
+  return { page: parsedPage, limit: parsedLimit };
 }
 
-function filterConversations(conversations: Conversation[], filters: ConversationFilters): Conversation[] {
-  return conversations.filter(conv => {
-    // Filtre par statut
-    if (filters.status && filters.status !== 'all' && conv.status !== filters.status) {
-      return false;
-    }
+function validateFilters(filters: ConversationFilters): ConversationFilters {
+  const validatedFilters: ConversationFilters = {};
 
-    // Filtre par feedback
-    if (filters.feedback && filters.feedback !== 'all') {
-      const hasFeedback = conv.feedback && conv.feedback.length > 0;
-      const hasPositiveFeedback = hasFeedback && conv.feedback!.some(f => f.type === 'positive');
-      const hasNegativeFeedback = hasFeedback && conv.feedback!.some(f => f.type === 'negative');
+  if (filters.search && typeof filters.search === 'string') {
+    validatedFilters.search = filters.search.trim().slice(0, 100);
+  }
 
-      switch (filters.feedback) {
-        case 'positive':
-          if (!hasPositiveFeedback) return false;
-          break;
-        case 'negative':
-          if (!hasNegativeFeedback) return false;
-          break;
-        case 'none':
-          if (hasFeedback) return false;
-          break;
-      }
-    }
+  if (filters.feedback && ['positive', 'negative', 'none', 'all'].includes(filters.feedback)) {
+    validatedFilters.feedback = filters.feedback;
+  }
 
-    // Filtre par date
-    if (filters.dateFrom) {
-      const fromDate = new Date(filters.dateFrom);
-      fromDate.setHours(0, 0, 0, 0); // Début de journée
-      if (conv.startTime < fromDate) return false;
-    }
-    if (filters.dateTo) {
-      const toDate = new Date(filters.dateTo);
-      toDate.setHours(23, 59, 59, 999); // Fin de journée
-      if (conv.startTime > toDate) return false;
-    }
+  if (filters.dateFrom && typeof filters.dateFrom === 'string') {
+    validatedFilters.dateFrom = filters.dateFrom;
+  }
 
-    // Filtre par recherche textuelle
-    if (filters.search) {
-      const searchLower = filters.search.toLowerCase();
-      const inMessages = conv.messages.some(msg => 
-        msg.content.toLowerCase().includes(searchLower)
-      );
-      const inUserIdentifier = conv.user.identifier.toLowerCase().includes(searchLower);
-      if (!inMessages && !inUserIdentifier) return false;
-    }
+  if (filters.dateTo && typeof filters.dateTo === 'string') {
+    validatedFilters.dateTo = filters.dateTo;
+  }
 
-    // Filtre par identifiant utilisateur
-    if (filters.userIdentifier) {
-      if (!conv.user.identifier.toLowerCase().includes(filters.userIdentifier.toLowerCase())) {
-        return false;
-      }
-    }
-
-    return true;
-  });
-}
-
-function sortConversations(conversations: Conversation[], sortBy?: string, sortOrder?: 'asc' | 'desc'): Conversation[] {
-  const sorted = [...conversations];
-  const order = sortOrder || 'desc';
-
-  sorted.sort((a, b) => {
-    let aValue: any;
-    let bValue: any;
-
-    switch (sortBy) {
-      case 'startTime':
-        aValue = a.startTime;
-        bValue = b.startTime;
-        break;
-      case 'messageCount':
-        aValue = a.messageCount;
-        bValue = b.messageCount;
-        break;
-      case 'lastMessageTime':
-      default:
-        aValue = a.lastMessageTime;
-        bValue = b.lastMessageTime;
-        break;
-    }
-
-    if (aValue < bValue) return order === 'asc' ? -1 : 1;
-    if (aValue > bValue) return order === 'asc' ? 1 : -1;
-    return 0;
-  });
-
-  return sorted;
-}
-
-function paginateArray<T>(array: T[], page: number, limit: number): PaginatedResponse<T> {
-  const startIndex = (page - 1) * limit;
-  const endIndex = startIndex + limit;
-  const items = array.slice(startIndex, endIndex);
-  const total = array.length;
-  const totalPages = Math.ceil(total / limit);
-
-  return {
-    items,
-    total,
-    page,
-    limit,
-    totalPages
-  };
+  return validatedFilters;
 }
 
 // =============================================================================
-// CONTRÔLEURS
+// CONVERSION DES DONNÉES DATABASE VERS FORMAT API
 // =============================================================================
 
-export class AdminConversationsController {
-  /**
-   * @route   GET /api/admin/conversations
-   * @desc    Récupérer la liste des conversations avec pagination et filtres
-   * @access  Admin
-   */
-  static async getConversations(req: Request, res: Response): Promise<void> {
-    try {
-      const filters: ConversationFilters = req.query as any;
-      const { page, limit } = validatePagination(filters.page, filters.limit);
+async function convertDatabaseConversationsToAPI(
+  conversations: any[],
+  includeMessages: boolean = false
+): Promise<Conversation[]> {
+  const result: Conversation[] = [];
 
-      // Récupérer les vraies conversations et les filtrer
-      const allConversations = convertMemoryConversationsToAPI();
-      const filteredConversations = filterConversations(allConversations, filters);
+  for (const conv of conversations) {
+    let fullMessages: any[] = [];
+    let allFeedbacks: any[] = [];
+    let lastMessageContent = '';
 
-      // Trier les conversations
-      const sortedConversations = sortConversations(
-        filteredConversations,
-        filters.sortBy,
-        filters.sortOrder
-      );
+    if (includeMessages) {
+      // Mode détail : récupérer tous les messages et feedbacks
+      const fullConversation = await conversationDB.getFullConversation(conv.session_id);
+      fullMessages = fullConversation.messages || [];
+      allFeedbacks = fullMessages.flatMap(msg => msg.feedbacks || []);
+    } else {
+      // Mode liste : récupérer le dernier message ET tous les feedbacks pour les badges
+      try {
+        const lastMessages = await database.query(`
+          SELECT content, role FROM conversation_messages 
+          WHERE session_id = ? 
+          ORDER BY timestamp DESC 
+          LIMIT 1
+        `, [conv.session_id]);
+        
+        if (Array.isArray(lastMessages) && lastMessages.length > 0) {
+          lastMessageContent = lastMessages[0].content || '';
+        }
 
-      // Paginer les résultats
-      const paginatedResult = paginateArray(sortedConversations, page, limit);
-
-      const response = createApiResponse(true, paginatedResult);
-      res.status(200).json(response);
-    } catch (error) {
-      console.error('Erreur lors de la récupération des conversations:', error);
-      const response = createApiResponse(
-        false,
-        undefined,
-        ErrorCodes.INTERNAL_ERROR,
-        'Erreur lors de la récupération des conversations'
-      );
-      res.status(500).json(response);
-    }
-  }
-
-  /**
-   * @route   GET /api/admin/conversations/:id
-   * @desc    Récupérer une conversation spécifique
-   * @access  Admin
-   */
-  static async getConversation(req: Request, res: Response): Promise<void> {
-    try {
-      const { id } = req.params;
-      const allConversations = convertMemoryConversationsToAPI();
-      const conversation = allConversations.find(conv => conv.id === id);
-
-      if (!conversation) {
-        const response = createApiResponse(
-          false,
-          undefined,
-          ErrorCodes.NOT_FOUND,
-          'Conversation introuvable'
-        );
-        res.status(404).json(response);
-        return;
+        // Récupérer tous les feedbacks pour cette session (pour les badges)
+        const feedbacks = await database.query(`
+          SELECT feedback_id, message_id, session_id, type, comment, timestamp
+          FROM conversation_feedbacks 
+          WHERE session_id = ?
+        `, [conv.session_id]);
+        
+        allFeedbacks = Array.isArray(feedbacks) ? feedbacks : [];
+      } catch (error) {
+        // En cas d'erreur, on continue avec un message vide
+        lastMessageContent = '';
+        allFeedbacks = [];
       }
-
-      const response = createApiResponse(true, conversation);
-      res.status(200).json(response);
-    } catch (error) {
-      console.error('Erreur lors de la récupération de la conversation:', error);
-      const response = createApiResponse(
-        false,
-        undefined,
-        ErrorCodes.INTERNAL_ERROR,
-        'Erreur lors de la récupération de la conversation'
-      );
-      res.status(500).json(response);
     }
+    
+    // Identifier l'utilisateur
+    const userIdentifier = conv.user_identifier || `Étudiant-${conv.session_id.slice(-6)}`;
+    
+    // Convertir les messages de la base de données vers le format API
+    const apiMessages = fullMessages.map(msg => ({
+      id: msg.message_id,
+      sessionId: msg.session_id,
+      content: msg.content,
+      type: msg.role === 'user' ? 'user' as const : 'bot' as const,
+      timestamp: msg.timestamp,
+      metadata: msg.role === 'assistant' ? {
+        model: 'gpt-4',
+        tokensUsed: Math.floor(Math.random() * 100) + 50,
+        responseTime: Math.floor(Math.random() * 1000) + 500
+      } : undefined
+    }));
+
+    // Convertir les feedbacks de la base de données vers le format API
+    const apiFeedbacks = allFeedbacks.map(fb => ({
+      id: fb.feedback_id,
+      messageId: fb.message_id,
+      sessionId: fb.session_id,
+      type: fb.type,
+      comment: fb.comment,
+      timestamp: fb.timestamp
+    }));
+
+    // Calculer les métriques
+    const userMessages = fullMessages.filter(m => m.role === 'user');
+    const botMessages = fullMessages.filter(m => m.role === 'assistant');
+    const lastMessage = fullMessages[fullMessages.length - 1];
+    
+    const conversation: Conversation = {
+      id: `conv_${conv.session_id}`,
+      sessionId: conv.session_id,
+      user: {
+        id: `user_${conv.session_id}`,
+        sessionId: conv.session_id,
+        identifier: userIdentifier,
+        createdAt: conv.start_time,
+        lastActiveAt: conv.last_activity,
+        ipAddress: conv.ip_address
+      },
+      messages: apiMessages,
+      feedback: apiFeedbacks,
+      status: conv.last_activity > new Date(Date.now() - 10 * 60 * 1000) ? 'active' : 'completed',
+      startTime: conv.start_time,
+      endTime: conv.last_activity,
+      messageCount: conv.message_count || fullMessages.length,
+      lastMessage: includeMessages ? (lastMessage?.content || '') : lastMessageContent,
+      lastMessageTime: lastMessage?.timestamp || conv.last_activity,
+      totalTokensUsed: botMessages.length * 75
+    };
+
+    result.push(conversation);
   }
 
-  /**
-   * @route   GET /api/admin/conversations/search
-   * @desc    Recherche avancée dans les conversations
-   * @access  Admin
-   */
-  static async searchConversations(req: Request, res: Response): Promise<void> {
-    try {
-      const query: ConversationSearchQuery = req.query as any;
+  return result;
+}
 
-      if (!query.q || query.q.length < VALIDATION_RULES.search.minQueryLength) {
-        const response = createApiResponse(
-          false,
-          undefined,
-          ErrorCodes.VALIDATION_ERROR,
-          `La requête de recherche doit contenir au moins ${VALIDATION_RULES.search.minQueryLength} caractères`
-        );
-        res.status(400).json(response);
-        return;
-      }
+// =============================================================================
+// CONTRÔLEURS API
+// =============================================================================
 
-      const searchLimit = Math.min(
-        query.limit || 50,
-        VALIDATION_RULES.search.maxResultsLimit
-      );
+/**
+ * Récupérer toutes les conversations avec pagination et filtres
+ */
+export const getConversations = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const cacheBuster = (req.query as any)._t;
+    logger.info(`📋 Récupération conversations admin avec filtres${cacheBuster ? ' (cache-busting: ' + cacheBuster + ')' : ''}`);
 
-      // Construire les filtres à partir de la requête de recherche
-      const filters: ConversationFilters = {
-        search: query.q,
-        status: query.status as any,
-        feedback: query.feedback as any,
-        dateFrom: query.dateFrom,
-        dateTo: query.dateTo
-      };
+    const filters = validateFilters(req.query as ConversationFilters);
+    const { page, limit } = validatePagination(filters.page, filters.limit);
+    
+    // Debug: logs des filtres reçus
+    logger.info(`🔍 Filtres appliqués: feedback="${filters.feedback}", search="${filters.search}", dateFrom="${filters.dateFrom}", dateTo="${filters.dateTo}"`);
 
-      // Filtrer et limiter les résultats
-      const allConversations = convertMemoryConversationsToAPI();
-      const filteredConversations = filterConversations(allConversations, filters);
-      const limitedResults = filteredConversations.slice(0, searchLimit);
+    // Calculer l'offset
+    const offset = (page - 1) * limit;
 
-      const response = createApiResponse(true, limitedResults);
-      res.status(200).json(response);
-    } catch (error) {
-      console.error('Erreur lors de la recherche de conversations:', error);
-      const response = createApiResponse(
-        false,
-        undefined,
-        ErrorCodes.INTERNAL_ERROR,
-        'Erreur lors de la recherche'
-      );
-      res.status(500).json(response);
-    }
+    // Récupérer les conversations depuis la base de données
+    const { conversations: dbConversations, total } = await conversationDB.getAllConversations(
+      limit,
+      offset,
+      filters.search,
+      filters.dateFrom,
+      filters.dateTo,
+      filters.feedback as 'positive' | 'negative' | 'none' | 'all' | undefined
+    );
+
+    // Convertir vers le format API
+    const conversations = await convertDatabaseConversationsToAPI(dbConversations, false);
+
+    // Calculer la pagination
+    const totalPages = Math.ceil(total / limit);
+
+    const response: ApiResponse<PaginatedResponse<Conversation>> = {
+      success: true,
+      data: {
+        items: conversations,
+        total,
+        page,
+        limit,
+        totalPages
+      },
+      message: `${conversations.length} conversation(s) récupérée(s)`,
+      timestamp: new Date().toISOString()
+    };
+
+    res.status(200).json(response);
+    logger.info(`✅ ${conversations.length} conversations récupérées (page ${page}/${totalPages})`);
+
+  } catch (error) {
+    logger.error('❌ Erreur récupération conversations:', error);
+    res.status(500).json({
+      success: false,
+      error: ErrorCodes.INTERNAL_ERROR,
+      message: 'Erreur lors de la récupération des conversations',
+      timestamp: new Date().toISOString()
+    });
   }
+};
 
-  /**
-   * @route   GET /api/admin/conversations/export
-   * @desc    Exporter les conversations au format CSV
-   * @access  Admin
-   */
-  static async exportConversations(req: Request, res: Response): Promise<void> {
-    try {
-      const filters: ConversationFilters = req.query as any;
-      const allConversations = convertMemoryConversationsToAPI();
-      const filteredConversations = filterConversations(allConversations, filters);
+/**
+ * Récupérer une conversation spécifique avec tous ses détails
+ */
+export const getConversation = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id: sessionId } = req.params;
 
-      // Construire le CSV
-      const csvHeaders = [
-        'ID Conversation',
-        'Session ID',
-        'Utilisateur',
-        'Statut',
-        'Date Début',
-        'Date Fin',
-        'Nombre Messages',
-        'Dernier Message',
-        'Feedback',
-        'Tokens Utilisés',
-        'Temps Réponse Moyen'
-      ].join(',');
-
-      const csvRows = filteredConversations.map(conv => {
-        const feedback = conv.feedback && conv.feedback.length > 0
-          ? conv.feedback.map(f => f.type).join(';')
-          : 'aucun';
-
-        return [
-          conv.id,
-          conv.sessionId,
-          `"${conv.user.identifier}"`,
-          conv.status,
-          conv.startTime.toISOString(),
-          conv.endTime?.toISOString() || '',
-          conv.messageCount,
-          `"${conv.lastMessage.substring(0, 100)}..."`,
-          feedback,
-          conv.totalTokensUsed || 0,
-          conv.averageResponseTime || 0
-        ].join(',');
+    if (!sessionId) {
+      res.status(400).json({
+        success: false,
+        error: ErrorCodes.VALIDATION_ERROR,
+        message: 'ID de session requis',
+        timestamp: new Date().toISOString()
       });
-
-      const csvContent = [csvHeaders, ...csvRows].join('\n');
-
-      res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', `attachment; filename="conversations_${new Date().toISOString().split('T')[0]}.csv"`);
-      res.status(200).send(csvContent);
-    } catch (error) {
-      console.error('Erreur lors de l\'export des conversations:', error);
-      const response = createApiResponse(
-        false,
-        undefined,
-        ErrorCodes.INTERNAL_ERROR,
-        'Erreur lors de l\'export'
-      );
-      res.status(500).json(response);
+      return;
     }
+
+    logger.info(`🔍 Récupération conversation: ${sessionId}`);
+
+    // Récupérer la conversation complète depuis la base de données
+    const fullConversation = await conversationDB.getFullConversation(sessionId);
+
+    if (!fullConversation.session) {
+      res.status(404).json({
+        success: false,
+        error: ErrorCodes.NOT_FOUND,
+        message: 'Conversation non trouvée',
+        timestamp: new Date().toISOString()
+      });
+      return;
+    }
+
+    // Convertir vers le format API
+    const dbConversations = [{
+      session_id: fullConversation.session.session_id,
+      user_identifier: fullConversation.session.user_identifier,
+      ip_address: fullConversation.session.ip_address,
+      start_time: fullConversation.session.created_at,
+      last_activity: fullConversation.session.last_activity,
+      message_count: fullConversation.messages.length,
+      positive_feedback_count: 0,
+      negative_feedback_count: 0,
+      is_active: fullConversation.session.is_active
+    }];
+
+    const [conversation] = await convertDatabaseConversationsToAPI(dbConversations, true);
+
+    const response: ApiResponse<Conversation> = {
+      success: true,
+      data: conversation,
+      message: 'Conversation récupérée avec succès',
+      timestamp: new Date().toISOString()
+    };
+
+    res.status(200).json(response);
+    logger.info(`✅ Conversation récupérée: ${sessionId} (${conversation.messageCount} messages)`);
+
+  } catch (error) {
+    logger.error('❌ Erreur récupération conversation:', error);
+    res.status(500).json({
+      success: false,
+      error: ErrorCodes.INTERNAL_ERROR,
+      message: 'Erreur lors de la récupération de la conversation',
+      timestamp: new Date().toISOString()
+    });
   }
-}
+};
+
+/**
+ * Supprimer une conversation
+ */
+export const deleteConversation = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id: sessionId } = req.params;
+
+    if (!sessionId) {
+      res.status(400).json({
+        success: false,
+        error: ErrorCodes.VALIDATION_ERROR,
+        message: 'ID de session requis',
+        timestamp: new Date().toISOString()
+      });
+      return;
+    }
+
+    logger.info(`🗑️ Suppression conversation: ${sessionId}`);
+
+    const deleted = await conversationDB.deleteConversation(sessionId);
+
+    if (!deleted) {
+      res.status(404).json({
+        success: false,
+        error: ErrorCodes.NOT_FOUND,
+        message: 'Conversation non trouvée',
+        timestamp: new Date().toISOString()
+      });
+      return;
+    }
+
+    const response: ApiResponse<{ deleted: boolean }> = {
+      success: true,
+      data: { deleted: true },
+      message: 'Conversation supprimée avec succès',
+      timestamp: new Date().toISOString()
+    };
+
+    res.status(200).json(response);
+    logger.info(`✅ Conversation supprimée: ${sessionId}`);
+
+  } catch (error) {
+    logger.error('❌ Erreur suppression conversation:', error);
+    res.status(500).json({
+      success: false,
+      error: ErrorCodes.INTERNAL_ERROR,
+      message: 'Erreur lors de la suppression de la conversation',
+      timestamp: new Date().toISOString()
+    });
+  }
+};
+
+/**
+ * Rechercher dans les conversations
+ */
+export const searchConversations = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { query } = req.body;
+
+    if (!query || typeof query !== 'string' || query.trim().length < 2) {
+      res.status(400).json({
+        success: false,
+        error: ErrorCodes.VALIDATION_ERROR,
+        message: 'Requête de recherche invalide (minimum 2 caractères)',
+        timestamp: new Date().toISOString()
+      });
+      return;
+    }
+
+    logger.info(`🔍 Recherche conversations: "${query}"`);
+
+    const filters = { search: query.trim() };
+    const { conversations: dbConversations } = await conversationDB.getAllConversations(
+      20, // Limite pour recherche
+      0,  // Offset
+      filters.search
+    );
+
+    const conversations = await convertDatabaseConversationsToAPI(dbConversations, false);
+
+    const response: ApiResponse<Conversation[]> = {
+      success: true,
+      data: conversations,
+      message: `${conversations.length} conversation(s) trouvée(s)`,
+      timestamp: new Date().toISOString()
+    };
+
+    res.status(200).json(response);
+    logger.info(`✅ Recherche terminée: ${conversations.length} résultats pour "${query}"`);
+
+  } catch (error) {
+    logger.error('❌ Erreur recherche conversations:', error);
+    res.status(500).json({
+      success: false,
+      error: ErrorCodes.INTERNAL_ERROR,
+      message: 'Erreur lors de la recherche',
+      timestamp: new Date().toISOString()
+    });
+  }
+};
+
+/**
+ * Exporter les conversations en CSV
+ */
+export const exportConversations = async (req: Request, res: Response): Promise<void> => {
+  try {
+    logger.info('📄 Export conversations en CSV');
+
+    const filters = validateFilters(req.query as ConversationFilters);
+
+    // Récupérer toutes les conversations qui correspondent aux filtres
+    const { conversations: dbConversations } = await conversationDB.getAllConversations(
+      1000, // Limite élevée pour export
+      0,
+      filters.search,
+      filters.dateFrom,
+      filters.dateTo,
+      filters.feedback as 'positive' | 'negative' | 'none' | 'all' | undefined
+    );
+
+    const conversations = await convertDatabaseConversationsToAPI(dbConversations, true);
+
+    // Générer le CSV
+    const csvHeaders = [
+      'ID Session',
+      'Utilisateur',
+      'Date Début',
+      'Date Fin',
+      'Nombre Messages',
+      'Dernier Message',
+      'Statut',
+      'Feedback Positif',
+      'Feedback Négatif',
+      'IP Address'
+    ].join(',');
+
+    const csvRows = conversations.map(conv => [
+      conv.sessionId,
+      `"${conv.user.identifier}"`,
+      conv.startTime.toISOString(),
+      (conv.endTime || conv.lastMessageTime).toISOString(),
+      conv.messageCount,
+      `"${conv.lastMessage.replace(/"/g, '""').substring(0, 100)}"`,
+      conv.status,
+      (conv.feedback || []).filter(f => f.type === 'positive').length,
+      (conv.feedback || []).filter(f => f.type === 'negative').length,
+      conv.user.ipAddress || ''
+    ].join(','));
+
+    const csvContent = [csvHeaders, ...csvRows].join('\n');
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="conversations_${new Date().toISOString().split('T')[0]}.csv"`);
+    res.send(csvContent);
+
+    logger.info(`✅ Export CSV généré: ${conversations.length} conversations`);
+
+  } catch (error) {
+    logger.error('❌ Erreur export CSV:', error);
+    res.status(500).json({
+      success: false,
+      error: ErrorCodes.INTERNAL_ERROR,
+      message: 'Erreur lors de l\'export',
+      timestamp: new Date().toISOString()
+    });
+  }
+};
+
+/**
+ * Obtenir les statistiques globales des conversations
+ */
+export const getConversationStats = async (req: Request, res: Response): Promise<void> => {
+  try {
+    logger.info('📊 Récupération statistiques conversations');
+
+    const stats = await conversationDB.getStats();
+
+    const response: ApiResponse<typeof stats> = {
+      success: true,
+      data: stats,
+      message: 'Statistiques récupérées avec succès',
+      timestamp: new Date().toISOString()
+    };
+
+    res.status(200).json(response);
+    logger.info(`✅ Statistiques récupérées: ${stats.sessions} sessions, ${stats.messages} messages`);
+
+  } catch (error) {
+    logger.error('❌ Erreur récupération statistiques:', error);
+    res.status(500).json({
+      success: false,
+      error: ErrorCodes.INTERNAL_ERROR,
+      message: 'Erreur lors de la récupération des statistiques',
+      timestamp: new Date().toISOString()
+    });
+  }
+};
+
+/**
+ * Test simple pour diagnostiquer le problème
+ */
+export const testConversations = async (req: Request, res: Response): Promise<void> => {
+  try {
+    logger.info('🔧 Test endpoint conversations');
+    
+    // Test 1: Vérifier la connexion DB
+    const stats = await conversationDB.getStats();
+    logger.info('✅ Stats DB:', stats);
+    
+    // Test 2: Test requête SQL simple
+    const testQuery = await database.query('SELECT COUNT(*) as count FROM conversation_sessions');
+    logger.info('✅ Test query simple:', testQuery);
+    
+          res.status(200).json({
+        success: true,
+        data: {
+          stats,
+          testQuery
+        },
+        message: 'Test réussi',
+        timestamp: new Date().toISOString()
+      });
+    
+  } catch (error) {
+    logger.error('❌ Erreur test conversations:', error);
+    res.status(500).json({
+      success: false,
+      error: 'TEST_ERROR',
+      message: `Erreur test: ${error instanceof Error ? error.message : String(error)}`,
+      timestamp: new Date().toISOString()
+    });
+  }
+};
+
+const AdminConversationsController = {
+  getConversations,
+  getConversation,
+  deleteConversation,
+  searchConversations,
+  exportConversations,
+  getConversationStats,
+  testConversations
+};
 
 export default AdminConversationsController; 

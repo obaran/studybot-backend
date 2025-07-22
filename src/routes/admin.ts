@@ -33,7 +33,7 @@ const mockAuthMiddleware = (req: any, res: any, next: any) => {
  * @access  Admin
  * @query   page, limit, sortBy, sortOrder, status, feedback, dateFrom, dateTo, search, userIdentifier
  */
-router.get('/conversations', mockAuthMiddleware, AdminConversationsController.getConversations);
+  router.get('/conversations', mockAuthMiddleware, AdminConversationsController.getConversations);
 
 /**
  * @route   GET /api/admin/conversations/search

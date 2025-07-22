@@ -1,220 +1,208 @@
 // =============================================================================
-// STUDYBOT BACKEND - SERVEUR EXPRESS PRINCIPAL
+// STUDYBOT BACKEND - SERVEUR PRINCIPAL AVEC MYSQL
 // =============================================================================
 
 import express from 'express';
 import cors from 'cors';
-import helmet from 'helmet';
-import morgan from 'morgan';
-import compression from 'compression';
-import rateLimit from 'express-rate-limit';
-import { config } from '@/config';
 import { logger } from '@/utils/logger';
-import { errorHandler } from '@/middleware/errorHandler';
-import { requestId } from '@/middleware/requestId';
-
-// Import des routes
+import { config } from '@/config';
 import chatRoutes from '@/routes/chat';
-// import authRoutes from '@/routes/auth';
 import adminRoutes from '@/routes/admin';
+import DatabaseInitializer from '@/database/init';
+import { conversationDB } from '@/services/conversationDatabaseService';
 
 const app = express();
+const PORT = process.env.PORT || 3001;
 
 // =============================================================================
-// MIDDLEWARES DE SÉCURITÉ
+// MIDDLEWARE
 // =============================================================================
 
-// Helmet pour la sécurité des headers
-app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      scriptSrc: ["'self'"],
-      imgSrc: ["'self'", "data:", "https:"],
-    },
-  },
-  hsts: {
-    maxAge: 31536000,
-    includeSubDomains: true,
-    preload: true
-  }
-}));
-
-// CORS
 app.use(cors({
-  origin: (origin, callback) => {
-    // Permettre les requêtes sans origin (applications mobiles, Postman, etc.)
-    if (!origin) return callback(null, true);
-    
-    if (config.server.corsOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      callback(new Error('Non autorisé par CORS'));
-    }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+  credentials: true
 }));
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: config.server.rateLimitWindow,
-  max: config.server.rateLimitMaxRequests,
-  message: {
-    error: 'Trop de requêtes, veuillez réessayer plus tard.',
-    retryAfter: config.server.rateLimitWindow / 1000
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
+
+// Middleware de logging des requêtes
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    logger.info(`${req.ip} - - [${new Date().toISOString().replace('T', ' ').slice(0, -5)}] "${req.method} ${req.originalUrl} HTTP/${req.httpVersion}" ${res.statusCode} ${res.get('Content-Length') || '-'} "${req.get('Referer') || ''}" "${req.get('User-Agent') || ''}"`);
+  });
+  next();
 });
 
-app.use('/api/', limiter);
-
 // =============================================================================
-// MIDDLEWARES GÉNÉRAUX
+// INITIALISATION BASE DE DONNÉES
 // =============================================================================
 
-// Compression
-app.use(compression());
-
-// Parsing JSON
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
-// Logging des requêtes
-if (config.server.nodeEnv !== 'test') {
-  app.use(morgan('combined', {
-    stream: {
-      write: (message: string) => logger.info(message.trim())
+async function initializeDatabase() {
+  try {
+    logger.info('🔧 Initialisation de la base de données MySQL...');
+    
+    const initialized = await DatabaseInitializer.initialize();
+    if (!initialized) {
+      throw new Error('Échec initialisation base de données');
     }
-  }));
+
+    // Vérifier l'intégrité
+    const integrityOk = await DatabaseInitializer.checkIntegrity();
+    if (!integrityOk) {
+      logger.warn('⚠️ Problème d\'intégrité détecté, mais continue...');
+    }
+
+    // Afficher les statistiques
+    const stats = await DatabaseInitializer.getStats();
+    logger.info(`📊 Statistiques DB: ${stats.sessions} sessions, ${stats.messages} messages, ${stats.feedbacks} feedbacks`);
+    
+    return true;
+  } catch (error) {
+    logger.error('❌ Erreur initialisation base de données:', error);
+    return false;
+  }
 }
 
-// Request ID pour le tracking
-app.use(requestId);
-
 // =============================================================================
-// ROUTES DE SANTÉ
+// ROUTES
 // =============================================================================
 
-// Health check
-app.get('/health', (_req, res) => {
+// Routes principales
+app.use('/api/chat', chatRoutes);
+app.use('/api/admin', adminRoutes);
+
+// Route de santé avec statistiques DB
+app.get('/health', async (req, res) => {
+  try {
+    const stats = await DatabaseInitializer.getStats();
+    res.json({
+      status: 'OK',
+      timestamp: new Date().toISOString(),
+      database: {
+        connected: true,
+        ...stats
+      },
+      uptime: process.uptime(),
+      environment: process.env.NODE_ENV || 'development'
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'ERROR',
+      timestamp: new Date().toISOString(),
+      database: {
+        connected: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      },
+      uptime: process.uptime(),
+      environment: process.env.NODE_ENV || 'development'
+    });
+  }
+});
+
+// Route de base
+app.get('/', (req, res) => {
   res.json({
-    status: 'OK',
-    timestamp: new Date().toISOString(),
-    environment: config.server.nodeEnv,
-    uptime: process.uptime(),
-    database: config.isDatabaseConfigured ? 'configured' : 'not_configured'
+    message: 'StudyBot Backend API avec MySQL',
+    version: '2.0.0',
+    documentation: '/api-docs',
+    health: '/health'
   });
 });
 
-// Version de l'API
-app.get('/api/version', (_req, res) => {
-  res.json({
-    version: '1.0.0',
-    name: 'StudyBot Backend API',
-    environment: config.server.nodeEnv,
+// =============================================================================
+// GESTION D'ERREURS
+// =============================================================================
+
+// Middleware de gestion d'erreurs
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  logger.error('❌ Erreur non gérée:', err);
+  
+  res.status(err.status || 500).json({
+    success: false,
+    error: 'INTERNAL_ERROR',
+    message: process.env.NODE_ENV === 'development' ? err.message : 'Erreur interne du serveur',
     timestamp: new Date().toISOString()
   });
 });
-
-// =============================================================================
-// ROUTES PRINCIPALES
-// =============================================================================
-
-app.use('/api/chat', chatRoutes);
-// app.use('/api/auth', authRoutes);
-app.use('/api/admin', adminRoutes);
-
-// Route par défaut
-app.get('/api', (_req, res) => {
-  res.json({
-    message: 'StudyBot Backend API',
-    version: '1.0.0',
-    status: 'running',
-    endpoints: {
-      health: '/health',
-      version: '/api/version',
-      chat: '/api/chat',
-      // auth: '/api/auth',
-      admin: '/api/admin'
-    }
-  });
-});
-
-// =============================================================================
-// GESTION DES ERREURS
-// =============================================================================
 
 // Route 404
 app.use('*', (req, res) => {
   res.status(404).json({
     success: false,
-    error: {
-      code: 'ROUTE_NOT_FOUND',
-      message: `Route ${req.method} ${req.originalUrl} non trouvée`,
-      statusCode: 404
-    }
+    error: 'NOT_FOUND',
+    message: `Route ${req.originalUrl} non trouvée`,
+    timestamp: new Date().toISOString()
   });
 });
-
-// Gestionnaire d'erreurs global
-app.use(errorHandler);
 
 // =============================================================================
 // DÉMARRAGE DU SERVEUR
 // =============================================================================
 
-const startServer = async (): Promise<void> => {
+async function startServer() {
   try {
-    // Vérifier les configurations critiques
-    logger.info('🔧 Vérification des configurations...');
-    
-    if (!config.openai.endpoint || !config.openai.apiKey) {
-      throw new Error('Configuration Azure OpenAI manquante');
+    // 1. Initialiser la base de données
+    const dbInitialized = await initializeDatabase();
+    if (!dbInitialized) {
+      logger.error('❌ Impossible de démarrer sans base de données');
+      process.exit(1);
     }
-    
-    if (!config.qdrant.url || !config.qdrant.apiKey) {
-      throw new Error('Configuration Qdrant manquante');
-    }
-    
-    // Démarrer le serveur
-    const server = app.listen(config.server.port, () => {
-      logger.info(`🚀 StudyBot Backend démarré !`);
-      logger.info(`📍 Port: ${config.server.port}`);
-      logger.info(`🌍 Environnement: ${config.server.nodeEnv}`);
-      logger.info(`💾 Base de données: ${config.isDatabaseConfigured ? 'Configurée' : 'Non configurée'}`);
-      logger.info(`🤖 Azure OpenAI: ${config.openai.endpoint}`);
-      logger.info(`🔍 Qdrant: ${config.qdrant.url}`);
+
+    // 2. Démarrer le serveur HTTP
+    const server = app.listen(PORT, () => {
+      logger.info('🧠 Service mémoire conversationnelle initialisé');
+      logger.info('🔧 Vérification des configurations...');
+      logger.info('🚀 StudyBot Backend démarré !');
+      logger.info(`📍 Port: ${PORT}`);
+      logger.info(`🌍 Environnement: ${process.env.NODE_ENV || 'development'}`);
+      logger.info('💾 Base de données: Configurée');
+      logger.info(`🤖 Azure OpenAI: ${process.env.AZURE_OPENAI_ENDPOINT || 'Non configuré'}`);
+      logger.info(`🔍 Qdrant: ${process.env.QDRANT_URL || 'Non configuré'}`);
     });
 
-    // Gestion gracieuse de l'arrêt
-    const gracefulShutdown = (signal: string) => {
+    // 3. Gestion gracieuse de l'arrêt
+    const gracefulShutdown = async (signal: string) => {
       logger.info(`📡 Signal ${signal} reçu, arrêt en cours...`);
-      server.close(() => {
-        logger.info('✅ Serveur arrêté proprement');
-        process.exit(0);
+      
+      server.close(async () => {
+        try {
+          // Fermer les connexions DB
+          await conversationDB.cleanupOldConversations(7); // Nettoyer les conversations de plus de 7 jours
+          logger.info('💾 Connexions base de données fermées');
+          
+          logger.info('✅ Serveur arrêté proprement');
+          process.exit(0);
+        } catch (error) {
+          logger.error('❌ Erreur lors de l\'arrêt:', error);
+          process.exit(1);
+        }
       });
     };
 
+    // Écouter les signaux d'arrêt
     process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
     process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
+    // Gestion des erreurs non capturées
+    process.on('unhandledRejection', (reason, promise) => {
+      logger.error('❌ Promesse non gérée:', reason);
+    });
+
+    process.on('uncaughtException', (error) => {
+      logger.error('❌ Exception non capturée:', error);
+      process.exit(1);
+    });
+
   } catch (error) {
-    logger.error('❌ Erreur lors du démarrage du serveur:', error);
+    logger.error('❌ Erreur fatale au démarrage:', error);
     process.exit(1);
   }
-};
-
-// Démarrer seulement si ce fichier est exécuté directement
-if (require.main === module) {
-  startServer().catch(error => {
-    logger.error('❌ Erreur fatale:', error);
-    process.exit(1);
-  });
 }
 
-export { app, startServer };
+// Démarrer le serveur
+startServer();
+
 export default app; 
