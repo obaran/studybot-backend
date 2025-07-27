@@ -4,6 +4,7 @@
 
 import { Router } from 'express';
 import AdminConversationsController from '@/controllers/adminConversationsController';
+import systemPromptRoutes from './systemPrompt';
 
 const router = Router();
 
@@ -73,15 +74,64 @@ router.get('/conversations/:id', mockAuthMiddleware, AdminConversationsControlle
 // router.get('/system-prompt/:id/history', mockAuthMiddleware, AdminSystemPromptController.getSystemPromptHistory);
 
 // =============================================================================
-// ROUTES CONFIGURATION (à implémenter)
+// ROUTES PROMPTS SYSTÈME
 // =============================================================================
 
-// TODO: Implémenter les routes configuration
-// router.get('/configuration', mockAuthMiddleware, AdminConfigurationController.getConfiguration);
-// router.put('/configuration', mockAuthMiddleware, AdminConfigurationController.updateConfiguration);
-// router.post('/configuration/upload', mockAuthMiddleware, upload.single('file'), AdminConfigurationController.uploadFile);
-// router.post('/configuration/integration-links', mockAuthMiddleware, AdminConfigurationController.generateIntegrationLinks);
-// router.post('/configuration/regenerate-token', mockAuthMiddleware, AdminConfigurationController.regenerateToken);
+/**
+ * Routes pour la gestion des prompts système (versioning, activation, etc.)
+ * @access Admin
+ */
+router.use('/system-prompts', mockAuthMiddleware, systemPromptRoutes);
+
+// =============================================================================
+// ROUTES CONFIGURATION
+// =============================================================================
+
+import { configurationController } from '@/controllers/configurationController';
+import multer from 'multer';
+
+// Configuration Multer pour l'upload en mémoire
+const upload = multer({ 
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB
+  }
+});
+
+/**
+ * @route   GET /api/admin/configuration
+ * @desc    Récupérer la configuration par défaut
+ * @access  Admin
+ */
+router.get('/configuration', mockAuthMiddleware, configurationController.getConfiguration);
+
+/**
+ * @route   PUT /api/admin/configuration
+ * @desc    Mettre à jour la configuration
+ * @access  Admin
+ */
+router.put('/configuration', mockAuthMiddleware, configurationController.updateConfiguration);
+
+/**
+ * @route   POST /api/admin/configuration/upload
+ * @desc    Upload d'avatar (bot ou user)
+ * @access  Admin
+ */
+router.post('/configuration/upload', mockAuthMiddleware, upload.single('file'), configurationController.uploadFile);
+
+/**
+ * @route   POST /api/admin/configuration/integration-links
+ * @desc    Générer les liens d'intégration
+ * @access  Admin
+ */
+router.post('/configuration/integration-links', mockAuthMiddleware, configurationController.generateIntegrationLinks);
+
+/**
+ * @route   POST /api/admin/configuration/regenerate-token
+ * @desc    Régénérer le token d'intégration
+ * @access  Admin
+ */
+router.post('/configuration/regenerate-token', mockAuthMiddleware, configurationController.regenerateToken);
 
 // =============================================================================
 // ROUTES UTILISATEURS ADMIN (à implémenter)
@@ -134,8 +184,17 @@ router.get('/test', (req, res) => {
         export: 'GET /conversations/export',
         detail: 'GET /conversations/:id'
       },
+      systemPrompts: {
+        list: 'GET /system-prompts',
+        active: 'GET /system-prompts/active',
+        stats: 'GET /system-prompts/stats',
+        detail: 'GET /system-prompts/:id',
+        create: 'POST /system-prompts',
+        update: 'PUT /system-prompts/:id',
+        restore: 'POST /system-prompts/:id/restore',
+        delete: 'DELETE /system-prompts/:id'
+      },
       planned: {
-        systemPrompt: 'À implémenter',
         configuration: 'À implémenter',
         users: 'À implémenter',
         analytics: 'À implémenter',

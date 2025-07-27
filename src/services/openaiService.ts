@@ -7,6 +7,7 @@ import { config } from '@/config';
 import { logOpenAI, logError } from '@/utils/logger';
 import { errors } from '@/middleware/errorHandler';
 import { ChatMessage, ChatResponse } from '@/types';
+import { systemPromptService } from '@/services/systemPromptService';
 
 // Interface pour les messages OpenAI
 interface OpenAIMessage {
@@ -101,8 +102,8 @@ Paris (distanciel uniquement) :
       // Construire le contexte à partir des sources
       const contextPrompt = this.buildContextPrompt(contextSources);
       
-      // Construire l'historique de conversation
-      const messages = this.buildMessages(
+      // Construire l'historique de conversation avec prompt dynamique
+      const messages = await this.buildMessages(
         userMessage,
         conversationHistory,
         contextPrompt
@@ -185,17 +186,36 @@ Utilise ces informations pour répondre à la question de l'étudiant. Si les in
   }
 
   /**
-   * Construire les messages pour OpenAI
+   * Construire les messages pour OpenAI avec prompt dynamique
    */
-  private buildMessages(
+  private async buildMessages(
     userMessage: string,
     conversationHistory: ChatMessage[],
     contextPrompt: string
-  ): OpenAIMessage[] {
+  ): Promise<OpenAIMessage[]> {
     const messages: OpenAIMessage[] = [];
 
-    // Message système avec le contexte
-    let systemContent = this.systemPrompt;
+    // Récupérer le prompt système actif depuis la base de données
+    let systemContent = this.systemPrompt; // Fallback par défaut
+    
+    try {
+      const activePrompt = await systemPromptService.getActivePrompt();
+      if (activePrompt && activePrompt.content) {
+        systemContent = activePrompt.content;
+        logOpenAI('system_prompt_loaded', 'dynamic', 0, 0, `v${activePrompt.version}`);
+      } else {
+        logOpenAI('system_prompt_fallback', 'static', 0, 0, 'default');
+      }
+    } catch (error) {
+      logError(error as Error, {
+        service: 'systemPrompt',
+        action: 'getActivePrompt'
+      });
+      // Continue avec le prompt par défaut
+      logOpenAI('system_prompt_error', 'static', 0, 0, 'fallback');
+    }
+
+    // Ajouter le contexte si fourni
     if (contextPrompt) {
       systemContent += '\n\n' + contextPrompt;
     }

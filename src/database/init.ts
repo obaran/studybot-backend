@@ -4,6 +4,8 @@
 
 import { database } from '@/config/database';
 import { conversationDB } from '@/services/conversationDatabaseService';
+import { systemPromptService } from '@/services/systemPromptService';
+import { configurationService } from '@/services/configurationService';
 import { logger } from '@/utils/logger';
 
 export class DatabaseInitializer {
@@ -23,7 +25,13 @@ export class DatabaseInitializer {
       // 2. Initialiser les tables conversations
       await conversationDB.initializeTables();
 
-      // 3. Créer les index de performance si nécessaire
+      // 3. Initialiser les tables prompts système
+      await systemPromptService.initializeTables();
+
+      // 4. Initialiser les tables de configuration widget
+      await configurationService.initializeTables();
+
+      // 5. Créer les index de performance si nécessaire
       await DatabaseInitializer.createPerformanceIndexes();
 
       logger.info('✅ Base de données initialisée avec succès');

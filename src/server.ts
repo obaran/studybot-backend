@@ -8,6 +8,7 @@ import { logger } from '@/utils/logger';
 import { config } from '@/config';
 import chatRoutes from '@/routes/chat';
 import adminRoutes from '@/routes/admin';
+import widgetRoutes from '@/routes/widget';
 import DatabaseInitializer from '@/database/init';
 import { conversationDB } from '@/services/conversationDatabaseService';
 
@@ -73,6 +74,7 @@ async function initializeDatabase() {
 // Routes principales
 app.use('/api/chat', chatRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/widget', widgetRoutes);
 
 // Route de santé avec statistiques DB
 app.get('/health', async (req, res) => {
@@ -111,6 +113,9 @@ app.get('/', (req, res) => {
     health: '/health'
   });
 });
+
+// Servir les fichiers uploadés
+app.use('/uploads', express.static('uploads'));
 
 // =============================================================================
 // GESTION D'ERREURS
