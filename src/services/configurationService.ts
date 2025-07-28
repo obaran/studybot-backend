@@ -265,14 +265,26 @@ class ConfigurationService {
         throw new Error('Configuration par défaut non trouvée');
       }
 
-      // Construire la requête de mise à jour dynamiquement
+      // Mapping explicite pour éviter les erreurs de conversion
+      const fieldMapping: { [key: string]: string } = {
+        'welcomeMessage': 'welcome_message',
+        'footerText': 'footer_text', 
+        'footerLink': 'footer_link',
+        'primaryColor': 'primary_color',
+        'secondaryColor': 'secondary_color',
+        'botAvatarUrl': 'bot_avatar_url',
+        'userAvatarUrl': 'user_avatar_url',
+        'baseUrl': 'base_url',
+        'apiUrl': 'api_url'
+      };
+
+      // Construire la requête de mise à jour avec mapping explicite
       const updateFields: string[] = [];
       const updateValues: any[] = [];
 
       Object.entries(updates).forEach(([key, value]) => {
         if (value !== undefined) {
-          // Convertir camelCase vers snake_case
-          const dbField = key.replace(/([A-Z])/g, '_$1').toLowerCase();
+          const dbField = fieldMapping[key] || key.toLowerCase();
           updateFields.push(`${dbField} = ?`);
           updateValues.push(value);
         }
@@ -283,17 +295,24 @@ class ConfigurationService {
         return currentConfig;
       }
 
-      updateValues.push(updatedBy, currentConfig.token);
-
+      // La colonne updated_by n'existe pas, on skip
+      updateValues.push(currentConfig.token);
+      
       const query = `
         UPDATE widget_configurations 
         SET ${updateFields.join(', ')}, updated_at = CURRENT_TIMESTAMP
         WHERE token = ?
       `;
 
+      logger.info('🔍 UPDATE Configuration', { 
+        fieldsToUpdate: updateFields,
+        token: currentConfig.token,
+        updatesReceived: Object.keys(updates)
+      });
+
       await database.query(query, updateValues);
 
-      logger.info('✅ Configuration widget mise à jour', { 
+      logger.info('✅ Configuration widget mise à jour avec succès', { 
         token: currentConfig.token,
         fields: updateFields.length,
         updatedBy 
@@ -304,8 +323,12 @@ class ConfigurationService {
       return updatedConfig!;
 
     } catch (error) {
-      logger.error('❌ Erreur lors de la mise à jour de la configuration', { error });
-      throw new Error('Erreur lors de la mise à jour de la configuration');
+      logger.error('❌ Erreur mise à jour configuration', { 
+        error: error instanceof Error ? error.message : error,
+        stack: error instanceof Error ? error.stack : undefined,
+        updates: Object.keys(updates)
+      });
+      throw error; // Re-lancer l'erreur originale pour plus de détails
     }
   }
 

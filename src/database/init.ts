@@ -48,25 +48,51 @@ export class DatabaseInitializer {
    */
   private static async createPerformanceIndexes(): Promise<void> {
     try {
+      // Helper function to create index safely
+      const createIndexSafely = async (indexName: string, tableName: string, columns: string) => {
+        try {
+          // Check if index exists first
+          const [rows] = await database.query(`
+            SELECT COUNT(*) as count 
+            FROM information_schema.statistics 
+            WHERE table_schema = DATABASE() 
+            AND table_name = ? 
+            AND index_name = ?
+          `, [tableName, indexName]);
+          
+          if ((rows as any)[0].count === 0) {
+            await database.query(`CREATE INDEX ${indexName} ON ${tableName}(${columns})`);
+            logger.info(`✅ Index ${indexName} créé`);
+          } else {
+            logger.info(`ℹ️ Index ${indexName} existe déjà`);
+          }
+        } catch (error) {
+          logger.warn(`⚠️ Erreur création index ${indexName}:`, error);
+        }
+      };
+
       // Index pour les recherches par date
-      await database.query(`
-        CREATE INDEX IF NOT EXISTS idx_conversations_date_range 
-        ON conversation_sessions(created_at, last_activity)
-      `);
+      await createIndexSafely(
+        'idx_conversations_date_range',
+        'conversation_sessions',
+        'created_at, last_activity'
+      );
 
       // Index pour la recherche textuelle dans les messages
-      await database.query(`
-        CREATE INDEX IF NOT EXISTS idx_messages_content_search 
-        ON conversation_messages(content(255))
-      `);
+      await createIndexSafely(
+        'idx_messages_content_search',
+        'conversation_messages',
+        'content(255)'
+      );
 
       // Index composite pour les feedbacks
-      await database.query(`
-        CREATE INDEX IF NOT EXISTS idx_feedback_combined 
-        ON conversation_feedbacks(session_id, type, timestamp)
-      `);
+      await createIndexSafely(
+        'idx_feedback_combined',
+        'conversation_feedbacks',
+        'session_id, type, timestamp'
+      );
 
-      logger.info('✅ Index de performance créés');
+      logger.info('✅ Tous les index de performance vérifiés');
     } catch (error) {
       logger.warn('⚠️ Erreur création index de performance:', error);
     }

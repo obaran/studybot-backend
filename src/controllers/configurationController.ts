@@ -145,10 +145,14 @@ class ConfigurationController {
       });
 
     } catch (error) {
-      logger.error('❌ Erreur updateConfiguration', { error });
+      logger.error('❌ Erreur updateConfiguration détaillée', { 
+        error: error instanceof Error ? error.message : error,
+        stack: error instanceof Error ? error.stack : undefined,
+        body: req.body
+      });
       res.status(500).json({
         success: false,
-        message: 'Erreur serveur lors de la mise à jour',
+        message: `Erreur serveur: ${error instanceof Error ? error.message : 'Erreur inconnue'}`,
         timestamp: new Date().toISOString()
       });
     }
