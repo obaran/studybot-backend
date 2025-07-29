@@ -30,10 +30,10 @@ class DatabaseService {
       password: process.env.DB_PASSWORD || '',
       database: process.env.DB_NAME || 'studybot',
       ssl: process.env.NODE_ENV === 'production',
-      connectTimeout: 30000,
-      acquireTimeout: 30000,
-      timeout: 30000,
-      reconnect: true
+      connectTimeout: 60000,
+      acquireTimeout: 60000,
+      timeout: 60000,
+      reconnect: false
     };
 
     this.initializePool();
@@ -48,7 +48,12 @@ class DatabaseService {
         password: this.config.password,
         database: this.config.database,
         connectionLimit: 10,
-        charset: 'utf8mb4'
+        charset: 'utf8mb4',
+        acquireTimeout: 60000,
+        timeout: 60000,
+        reconnect: false,
+        maxReconnects: 3,
+        reconnectDelay: 2000
       };
 
       // Ajouter SSL pour Azure MySQL
@@ -80,16 +85,23 @@ class DatabaseService {
   }
 
   async query(sql: string, params?: any[]): Promise<any> {
-    const connection = await this.getConnection();
+    let connection: mysql.PoolConnection | null = null;
     
     try {
+      connection = await this.getConnection();
       const [results] = await connection.execute(sql, params);
       return results;
     } catch (error) {
-      logger.error('❌ Erreur exécution requête MySQL:', { sql, params, error });
+      logger.error('❌ Erreur exécution requête MySQL:', { sql: sql.substring(0, 100), error: error instanceof Error ? error.message : error });
       throw error;
     } finally {
-      connection.release();
+      if (connection) {
+        try {
+          connection.release();
+        } catch (releaseError) {
+          logger.warn('⚠️ Erreur libération connexion:', releaseError);
+        }
+      }
     }
   }
 

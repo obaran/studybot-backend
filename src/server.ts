@@ -5,7 +5,7 @@
 import express from 'express';
 import cors from 'cors';
 import { logger } from '@/utils/logger';
-import { config } from '@/config';
+// import { config } from '@/config';
 import chatRoutes from '@/routes/chat';
 import adminRoutes from '@/routes/admin';
 import widgetRoutes from '@/routes/widget';
@@ -31,7 +31,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use((req, res, next) => {
   const start = Date.now();
   res.on('finish', () => {
-    const duration = Date.now() - start;
+    // const duration = Date.now() - start;
     logger.info(`${req.ip} - - [${new Date().toISOString().replace('T', ' ').slice(0, -5)}] "${req.method} ${req.originalUrl} HTTP/${req.httpVersion}" ${res.statusCode} ${res.get('Content-Length') || '-'} "${req.get('Referer') || ''}" "${req.get('User-Agent') || ''}"`);
   });
   next();
@@ -77,7 +77,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/widget', widgetRoutes);
 
 // Route de santé avec statistiques DB
-app.get('/health', async (req, res) => {
+app.get('/health', async (_req, res) => {
   try {
     const stats = await DatabaseInitializer.getStats();
     res.json({
@@ -105,7 +105,7 @@ app.get('/health', async (req, res) => {
 });
 
 // Route de base
-app.get('/', (req, res) => {
+app.get('/', (_req, res) => {
   res.json({
     message: 'StudyBot Backend API avec MySQL',
     version: '2.0.0',
@@ -122,7 +122,7 @@ app.use('/uploads', express.static('uploads'));
 // =============================================================================
 
 // Middleware de gestion d'erreurs
-app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   logger.error('❌ Erreur non gérée:', err);
   
   res.status(err.status || 500).json({
@@ -192,7 +192,7 @@ async function startServer() {
     process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
     // Gestion des erreurs non capturées
-    process.on('unhandledRejection', (reason, promise) => {
+    process.on('unhandledRejection', (reason, _promise) => {
       logger.error('❌ Promesse non gérée:', reason);
     });
 
