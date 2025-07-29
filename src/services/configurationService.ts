@@ -362,6 +362,7 @@ class ConfigurationService {
 
   /**
    * Régénérer le token de la configuration par défaut
+   * SÉCURITÉ: Invalide TOUS les anciens tokens avant de créer le nouveau
    */
   async regenerateDefaultToken(updatedBy: string = 'admin'): Promise<WidgetConfiguration> {
     try {
@@ -370,27 +371,52 @@ class ConfigurationService {
         throw new Error('Configuration par défaut non trouvée');
       }
 
+      const oldToken = currentConfig.token;
       const newToken = await this.generateNewToken();
 
-      const query = `
+      // ÉTAPE 1: Désactiver TOUS les anciens tokens (sécurité critique)
+      await database.query(`
         UPDATE widget_configurations 
-        SET token = ?, updated_at = CURRENT_TIMESTAMP
+        SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP
+        WHERE token != ? AND is_active = TRUE
+      `, [newToken]);
+
+      // ÉTAPE 2: Mettre à jour la configuration avec le nouveau token
+      const updateQuery = `
+        UPDATE widget_configurations 
+        SET token = ?, is_active = TRUE, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
       `;
 
-      await database.query(query, [newToken, currentConfig.id]);
+      await database.query(updateQuery, [newToken, currentConfig.id]);
 
-      logger.info('🔄 Token de configuration régénéré', { 
-        oldToken: currentConfig.token,
-        newToken,
-        updatedBy 
+      // ÉTAPE 3: Vérifier que l'ancien token est bien invalidé
+      const oldTokenCheck = await this.getConfigurationByToken(oldToken);
+      if (oldTokenCheck) {
+        logger.warn('⚠️ Ancien token encore actif, forçage de la désactivation');
+        await database.query(`
+          UPDATE widget_configurations 
+          SET is_active = FALSE 
+          WHERE token = ?
+        `, [oldToken]);
+      }
+
+      logger.info('🔄 Token de configuration régénéré avec invalidation sécurisée', { 
+        oldToken: oldToken,
+        newToken: newToken,
+        updatedBy: updatedBy,
+        securityCheck: 'PASSED'
       });
 
       const updatedConfig = await this.getDefaultConfiguration();
-      return updatedConfig!;
+      if (!updatedConfig) {
+        throw new Error('Configuration mise à jour non trouvée');
+      }
+
+      return updatedConfig;
 
     } catch (error) {
-      logger.error('❌ Erreur lors de la régénération du token', { error });
+      logger.error('❌ Erreur lors de la régénération sécurisée du token', { error });
       throw new Error('Erreur lors de la régénération du token');
     }
   }
