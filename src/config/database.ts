@@ -33,7 +33,7 @@ class DatabaseService {
       connectTimeout: 60000,
       acquireTimeout: 60000,
       timeout: 60000,
-      reconnect: false
+      reconnect: false  // ✅ MySQL2: Pas de reconnexion automatique (évite CPU 100%)
     };
 
     this.initializePool();
@@ -51,9 +51,11 @@ class DatabaseService {
         charset: 'utf8mb4',
         acquireTimeout: 60000,
         timeout: 60000,
-        reconnect: false,
-        maxReconnects: 3,
-        reconnectDelay: 2000
+        // ✅ MySQL2: Configuration pool optimisée pour la stabilité
+        idleTimeout: 300000,    // 5 minutes avant fermeture connexion idle
+        queueLimit: 0,          // Pas de limite de queue
+        enableKeepAlive: true,  // Maintenir les connexions vivantes
+        keepAliveInitialDelay: 0
       };
 
       // Ajouter SSL pour Azure MySQL
@@ -85,24 +87,85 @@ class DatabaseService {
   }
 
   async query(sql: string, params?: any[]): Promise<any> {
-    let connection: mysql.PoolConnection | null = null;
+    return this.queryWithRetry(sql, params, 3);
+  }
+
+  // 🚀 LOGIQUE PROFESSIONNELLE : Reconnexion transparente avec retry
+  private async queryWithRetry(sql: string, params?: any[], maxRetries: number = 3): Promise<any> {
+    let lastError: any;
     
-    try {
-      connection = await this.getConnection();
-      const [results] = await connection.execute(sql, params);
-      return results;
-    } catch (error) {
-      logger.error('❌ Erreur exécution requête MySQL:', { sql: sql.substring(0, 100), error: error instanceof Error ? error.message : error });
-      throw error;
-    } finally {
-      if (connection) {
-        try {
-          connection.release();
-        } catch (releaseError) {
-          logger.warn('⚠️ Erreur libération connexion:', releaseError);
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      let connection: mysql.PoolConnection | null = null;
+      
+      try {
+        connection = await this.getConnection();
+        const [results] = await connection.execute(sql, params);
+        
+        // ✅ Succès : Log uniquement si c'était un retry
+        if (attempt > 1) {
+          logger.info(`✅ Requête réussie après ${attempt} tentatives`);
+        }
+        
+        return results;
+      } catch (error) {
+        lastError = error;
+        
+        // 🔍 Vérifier si c'est une erreur de connexion MySQL
+        if (this.isConnectionError(error) && attempt < maxRetries) {
+          logger.warn(`⚠️ Déconnexion MySQL détectée (tentative ${attempt}/${maxRetries}), retry dans ${attempt}s...`);
+          
+          // 🕐 Backoff exponentiel : 1s, 2s, 3s...
+          await this.sleep(attempt * 1000);
+          continue; // Retry transparent
+        }
+        
+        // ❌ Erreur définitive ou max retries atteint
+        logger.error('❌ Erreur définitive MySQL:', {
+          sql: sql.substring(0, 100),
+          attempt,
+          error: error instanceof Error ? error.message : error
+        });
+        break;
+      } finally {
+        if (connection) {
+          try {
+            connection.release();
+          } catch (releaseError) {
+            logger.warn('⚠️ Erreur libération connexion:', releaseError);
+          }
         }
       }
     }
+    
+    throw lastError;
+  }
+
+  // 🔍 Détection des erreurs de connexion MySQL (pattern industrie)
+  private isConnectionError(error: any): boolean {
+    if (!error) return false;
+    
+    const connectionErrorCodes = [
+      'PROTOCOL_CONNECTION_LOST',
+      'ECONNRESET',
+      'ENOTFOUND',
+      'ENETUNREACH',
+      'ETIMEDOUT',
+      'ECONNREFUSED',
+      'ER_SERVER_SHUTDOWN',
+      'ER_CONNECTION_KILLED'
+    ];
+    
+    const errorCode = error.code || error.errno || '';
+    const errorMessage = (error.message || '').toLowerCase();
+    
+    return connectionErrorCodes.some(code => 
+      errorCode === code || errorMessage.includes(code.toLowerCase())
+    ) || errorMessage.includes('connection') && errorMessage.includes('lost');
+  }
+
+  // 🕐 Utilitaire sleep pour backoff
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   async transaction<T>(callback: (connection: mysql.PoolConnection) => Promise<T>): Promise<T> {

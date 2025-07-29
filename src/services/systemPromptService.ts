@@ -235,7 +235,7 @@ class SystemPromptService {
       await database.query(`UPDATE system_prompts SET is_active = FALSE`);
 
       // Créer le nouveau prompt actif
-      const result = await database.query(`
+      await database.query(`
         INSERT INTO system_prompts (
           prompt_id, content, version, title, description, created_by, is_active, metadata
         ) VALUES (?, ?, ?, ?, ?, ?, TRUE, ?)

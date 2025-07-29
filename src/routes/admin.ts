@@ -13,7 +13,7 @@ const router = Router();
 // =============================================================================
 
 // Middleware temporaire pour simuler l'authentification
-const mockAuthMiddleware = (req: any, res: any, next: any) => {
+const mockAuthMiddleware = (req: any, _res: any, next: any) => {
   // En attendant l'implémentation de l'auth JWT
   req.user = {
     id: 'admin_001',
@@ -172,7 +172,7 @@ router.post('/configuration/regenerate-token', mockAuthMiddleware, configuration
  * @desc    Test de l'API admin
  * @access  Public (pour debug)
  */
-router.get('/test', (req, res) => {
+router.get('/test', (_req, res) => {
   res.json({
     success: true,
     message: 'API Admin StudyBot fonctionnelle',

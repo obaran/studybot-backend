@@ -5,7 +5,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { database } from '@/config/database';
 import { logger } from '@/utils/logger';
-import { RowDataPacket, ResultSetHeader } from 'mysql2';
+import { RowDataPacket } from 'mysql2';
 
 // =============================================================================
 // TYPES
@@ -513,7 +513,7 @@ class ConfigurationService {
     updatedBy: string = 'admin'
   ): Promise<WidgetConfiguration> {
     try {
-      const field = type === 'bot' ? 'bot_avatar_url' : 'user_avatar_url';
+      // const field = type === 'bot' ? 'bot_avatar_url' : 'user_avatar_url';
       
       const updates: UpdateConfigurationRequest = {};
       if (type === 'bot') {

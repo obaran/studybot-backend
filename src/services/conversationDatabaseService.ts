@@ -47,7 +47,7 @@ export interface ConversationSummary {
 }
 
 class ConversationDatabaseService {
-  private readonly MAX_MESSAGES_PER_SESSION = 50;
+  // private readonly MAX_MESSAGES_PER_SESSION = 50;
 
   constructor() {
     logger.info('💾 Service base de données conversations initialisé');

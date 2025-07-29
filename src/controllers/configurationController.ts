@@ -31,7 +31,7 @@ class ConfigurationController {
    * @desc    Récupérer la configuration par défaut
    * @access  Admin
    */
-  async getConfiguration(req: Request, res: Response): Promise<void> {
+  async getConfiguration(_req: Request, res: Response): Promise<void> {
     try {
       const config = await configurationService.getDefaultConfiguration();
       
@@ -228,7 +228,7 @@ class ConfigurationController {
       const fileUrl = `/uploads/avatars/${fileName}`;
 
       // Mettre à jour la configuration avec la nouvelle URL
-      const updatedConfig = await configurationService.updateAvatarUrl(
+      await configurationService.updateAvatarUrl(
         type as 'bot' | 'user',
         fileUrl,
         'admin'
@@ -264,7 +264,7 @@ class ConfigurationController {
    * @desc    Générer les liens d'intégration
    * @access  Admin
    */
-  async generateIntegrationLinks(req: Request, res: Response): Promise<void> {
+  async generateIntegrationLinks(_req: Request, res: Response): Promise<void> {
     try {
       const integrationLinks = await configurationService.generateIntegrationLinks();
 
@@ -290,7 +290,7 @@ class ConfigurationController {
    * @desc    Régénérer le token d'intégration
    * @access  Admin
    */
-  async regenerateToken(req: Request, res: Response): Promise<void> {
+  async regenerateToken(_req: Request, res: Response): Promise<void> {
     try {
       const updatedConfig = await configurationService.regenerateDefaultToken('admin');
       const integrationLinks = await configurationService.generateIntegrationLinks();

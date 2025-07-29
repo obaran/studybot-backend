@@ -128,7 +128,7 @@ async function convertDatabaseConversationsToAPI(
     }));
 
     // Calculer les métriques
-    const userMessages = fullMessages.filter(m => m.role === 'user');
+    // const userMessages = fullMessages.filter(m => m.role === 'user');
     const botMessages = fullMessages.filter(m => m.role === 'assistant');
     const lastMessage = fullMessages[fullMessages.length - 1];
     
@@ -463,7 +463,7 @@ export const exportConversations = async (req: Request, res: Response): Promise<
 /**
  * Obtenir les statistiques globales des conversations
  */
-export const getConversationStats = async (req: Request, res: Response): Promise<void> => {
+export const getConversationStats = async (_req: Request, res: Response): Promise<void> => {
   try {
     logger.info('📊 Récupération statistiques conversations');
 
@@ -493,7 +493,7 @@ export const getConversationStats = async (req: Request, res: Response): Promise
 /**
  * Test simple pour diagnostiquer le problème
  */
-export const testConversations = async (req: Request, res: Response): Promise<void> => {
+export const testConversations = async (_req: Request, res: Response): Promise<void> => {
   try {
     logger.info('🔧 Test endpoint conversations');
     

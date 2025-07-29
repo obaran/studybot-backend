@@ -9,7 +9,7 @@ import { logger } from '@/utils/logger';
 /**
  * Récupérer tous les prompts système (historique)
  */
-export const getSystemPrompts = async (req: Request, res: Response): Promise<void> => {
+export const getSystemPrompts = async (_req: Request, res: Response): Promise<void> => {
   try {
     logger.info('📋 Récupération de tous les prompts système');
 
@@ -38,7 +38,7 @@ export const getSystemPrompts = async (req: Request, res: Response): Promise<voi
 /**
  * Récupérer le prompt système actif
  */
-export const getActiveSystemPrompt = async (req: Request, res: Response): Promise<void> => {
+export const getActiveSystemPrompt = async (_req: Request, res: Response): Promise<void> => {
   try {
     logger.info('🎯 Récupération du prompt système actif');
 
@@ -384,7 +384,7 @@ export const deleteSystemPrompt = async (req: Request, res: Response): Promise<v
 /**
  * Obtenir les statistiques des prompts système
  */
-export const getSystemPromptStats = async (req: Request, res: Response): Promise<void> => {
+export const getSystemPromptStats = async (_req: Request, res: Response): Promise<void> => {
   try {
     logger.info('📊 Récupération des statistiques des prompts');
 

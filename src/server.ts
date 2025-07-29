@@ -29,9 +29,7 @@ app.use(express.urlencoded({ extended: true }));
 
 // Middleware de logging des requêtes
 app.use((req, res, next) => {
-  const start = Date.now();
   res.on('finish', () => {
-    // const duration = Date.now() - start;
     logger.info(`${req.ip} - - [${new Date().toISOString().replace('T', ' ').slice(0, -5)}] "${req.method} ${req.originalUrl} HTTP/${req.httpVersion}" ${res.statusCode} ${res.get('Content-Length') || '-'} "${req.get('Referer') || ''}" "${req.get('User-Agent') || ''}"`);
   });
   next();
