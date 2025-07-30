@@ -350,6 +350,7 @@ class ConfigurationController {
         welcomeMessage: config.welcomeMessage,
         footerText: config.footerText,
         footerLink: config.footerLink,
+        footerLinkText: config.footerLinkText,
         primaryColor: config.primaryColor,
         secondaryColor: config.secondaryColor,
         botAvatarUrl: config.botAvatarUrl,

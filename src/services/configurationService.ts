@@ -18,6 +18,7 @@ export interface WidgetConfiguration {
   welcomeMessage: string;
   footerText: string;
   footerLink?: string;
+  footerLinkText?: string;
   primaryColor: string;
   secondaryColor: string;
   botAvatarUrl?: string;
@@ -37,6 +38,7 @@ export interface UpdateConfigurationRequest {
   welcomeMessage?: string;
   footerText?: string;
   footerLink?: string;
+  footerLinkText?: string;
   primaryColor?: string;
   secondaryColor?: string;
   botAvatarUrl?: string;
@@ -77,8 +79,9 @@ class ConfigurationService {
           token VARCHAR(255) UNIQUE NOT NULL,
           organization VARCHAR(255) DEFAULT 'emlyon business school',
           welcome_message TEXT,
-          footer_text VARCHAR(255) DEFAULT 'Powered by emlyon business school',
-          footer_link VARCHAR(500) DEFAULT 'https://emlyon.com',
+          footer_text VARCHAR(255) DEFAULT 'Powered by',
+          footer_link VARCHAR(500) DEFAULT 'https://em-lyon.com',
+          footer_link_text VARCHAR(255) DEFAULT 'emlyon business school',
           primary_color VARCHAR(7) DEFAULT '#e2001a',
           secondary_color VARCHAR(7) DEFAULT '#b50015',
           bot_avatar_url VARCHAR(500),
@@ -101,6 +104,31 @@ class ConfigurationService {
 
       await database.query(createTableQuery);
 
+      // Migration: Ajouter footer_link_text si elle n'existe pas (pour bases existantes)
+      try {
+        // Vérifier si la colonne existe déjà
+        const [columns] = await database.query(`
+          SELECT COLUMN_NAME 
+          FROM INFORMATION_SCHEMA.COLUMNS 
+          WHERE TABLE_NAME = 'widget_configurations' 
+          AND COLUMN_NAME = 'footer_link_text'
+        `) as [any[], any];
+
+        if (columns.length === 0) {
+          // La colonne n'existe pas, l'ajouter
+          await database.query(`
+            ALTER TABLE widget_configurations 
+            ADD COLUMN footer_link_text VARCHAR(255) DEFAULT 'emlyon business school'
+          `);
+          logger.info('✅ Migration: Colonne footer_link_text ajoutée avec succès');
+        } else {
+          logger.info('📦 Migration: Colonne footer_link_text déjà existante');
+        }
+      } catch (migrationError: any) {
+        logger.error('❌ Migration footer_link_text échouée:', migrationError);
+        throw new Error(`Migration footer_link_text échouée: ${migrationError.message}`);
+      }
+
       // Vérifier si la configuration par défaut existe (FIX: Gestion robuste duplication)
       const [rows] = await database.query(
         'SELECT COUNT(*) as count FROM widget_configurations WHERE token = ?',
@@ -116,20 +144,22 @@ class ConfigurationService {
             welcome_message,
             footer_text,
             footer_link,
+            footer_link_text,
             primary_color,
             secondary_color,
             environment,
             base_url,
             api_url
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
 
         const values = [
           'default-emlyon-2025',
           'emlyon business school',
           'Bonjour ! Je suis votre assistant virtuel emlyon. 🚨 Veuillez ne pas transmettre d\'informations personnelles. 🔔 Studybot peut faire des erreurs. Comment puis-je vous aider ?',
-          'Powered by emlyon business school',
-          'https://emlyon.com',
+          'Powered by',
+          'https://em-lyon.com',
+          'emlyon business school',
           '#e2001a',
           '#b50015',
           'development',
@@ -170,6 +200,7 @@ class ConfigurationService {
           welcome_message as welcomeMessage,
           footer_text as footerText,
           footer_link as footerLink,
+          footer_link_text as footerLinkText,
           primary_color as primaryColor,
           secondary_color as secondaryColor,
           bot_avatar_url as botAvatarUrl,
@@ -218,6 +249,7 @@ class ConfigurationService {
           welcome_message as welcomeMessage,
           footer_text as footerText,
           footer_link as footerLink,
+          footer_link_text as footerLinkText,
           primary_color as primaryColor,
           secondary_color as secondaryColor,
           bot_avatar_url as botAvatarUrl,
@@ -270,6 +302,7 @@ class ConfigurationService {
         'welcomeMessage': 'welcome_message',
         'footerText': 'footer_text', 
         'footerLink': 'footer_link',
+        'footerLinkText': 'footer_link_text',
         'primaryColor': 'primary_color',
         'secondaryColor': 'secondary_color',
         'botAvatarUrl': 'bot_avatar_url',
